@@ -10,7 +10,8 @@ echo start: %hour%.%min%.%secs%
 
 
 if not exist run mkdir run
-odin build . -debug -out:"run/msc.exe"
+odin build . -debug -o:none -out:"run/msc.exe"
+:: odin build . -no-bounds-check -disable-assert -o:speed -out:"run/msc.exe"
 
 
 set hour=%time:~0,2%
