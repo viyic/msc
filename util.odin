@@ -70,6 +70,7 @@ win32_open_file_dialog :: proc(filter: string, allocator := context.allocator) -
 
     max_length: u32 = MAX_PATH_WIDE
     file_buf := make([]u16, max_length)
+    defer delete(file_buf)
     // @note: use normal allocator to prevent overwrite
     filter_ := utf8_to_wstring(filter, allocator)
     defer free(filter_)
@@ -87,7 +88,6 @@ win32_open_file_dialog :: proc(filter: string, allocator := context.allocator) -
 
     if !ok
     {
-        delete(file_buf)
         return
     }
 

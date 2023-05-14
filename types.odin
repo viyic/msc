@@ -28,10 +28,10 @@ App :: struct
     current_path: string
     file_list: []os.File_Info
 
-    queue: [dynamic]Music_File
+    // queue: [dynamic]Music_File
     queue_max_count: u32
     playing_index: u32
-    queue_first: ^Music_File
+    // queue_first: ^Music_File
 
     last_click_cx, last_click_cy: int
     last_click_time: u64
@@ -108,7 +108,11 @@ Panel :: struct
     scroll: f32
 }
 
-Music_File :: struct
+Music_Info :: struct
 {
-
+    artist: string
+    title: string
+    album: string
+    release_time: string
+    full_path: string
 }

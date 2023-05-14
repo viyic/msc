@@ -242,7 +242,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
             else if wparam == VK_BACK
             {
                 index := 0
-                prev: ^Music_File = nil
+                // prev: ^Music_File = nil
                 /*
                 for cursor: ^Music_File = app.queue_first
                     cursor != nil

@@ -3,6 +3,7 @@ package msc
 import "core:fmt"
 import "core:os"
 import "core:slice"
+import "core:strings"
 import "core:path/filepath"
 import win32 "core:sys/windows"
 import ma "vendor:miniaudio"
@@ -78,6 +79,16 @@ ui_panel_left :: proc(app: ^App, ctx: ^Ui_Context)
     // draw_rect(ctx, 0, 0, width, 5)
 }
 
+change_current_path :: proc(app: ^App, new_path: string)
+{
+    if len(app.file_list) > 0
+    {
+        os.file_info_slice_delete(app.file_list)
+    }
+    app.file_list = []os.File_Info{}
+    app.current_path = new_path
+}
+
 ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
 {
     width := ctx.width - ctx.width / 3
@@ -94,21 +105,20 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
 
     at_y := 5
 
-    handle, err_open := os.open("D:\\msc\\")
-    if err_open != os.ERROR_NONE {
-        return
-    }
-    defer os.close(handle)
+    if len(app.file_list) == 0
+    {
+        handle, err_open := os.open(app.current_path)
+        if err_open != os.ERROR_NONE {
+            return
+        }
+        defer os.close(handle)
 
-    // file_list := [?]os.File_Info{
-    //     { fullpath = `D:\msc\shirenvasea - nuestro.mp3`, name = `shirenvasea - nuestro.mp3`, is_dir = false},
-    // }
-    file_list, err_read_dir := os.read_dir(handle, 0)
-    if err_read_dir != os.ERROR_NONE {
-        return
-    }
-    defer {
-        os.file_info_slice_delete(file_list)
+        file_list, err_read_dir := os.read_dir(handle, 0)
+        if err_read_dir != os.ERROR_NONE {
+            return
+        }
+
+        app.file_list = file_list
     }
 
     filter_proc :: proc(item: os.File_Info) -> bool
@@ -120,17 +130,20 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
              ext == ".wav" ||
              ext == ".ogg")
     }
-    file_list_ := slice.filter(file_list, filter_proc)
+    file_list := slice.filter(app.file_list, filter_proc)
+
     defer {
-        delete(file_list_)
+        delete(file_list)
     }
 
     // @todo: figure out how resizing with scrolled panel work, anchor on top left?
-    list_height := item_height * (len(file_list_) + 1)
+    list_height := item_height * (len(file_list) + 1)
     list_scroll := int(f32(list_height - height) * app.left.scroll)
 
+    new_path := ""
+
     set_text_align(ctx, TA_CENTER)
-    for cursor in file_list_
+    for cursor in file_list
     {
         if at_y + item_height >= list_scroll &&
            at_y < list_scroll + height
@@ -138,28 +151,62 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
             rect := get_text_size(ctx, cursor.name)
             if button(ctx, x, at_y - list_scroll, int(rect.w) + padding, int(rect.h) + padding, cursor.name, app.left)
             {
-                ext := filepath.ext(cursor.name)
-                if !cursor.is_dir &&
-                   (ext == ".mp3" ||
-                    ext == ".flac" ||
-                    ext == ".wav" ||
-                    ext == ".ogg")
+                if !cursor.is_dir
                 {
-                    add_music_to_queue(app, cursor.fullpath)
-                    // request_redraw(ctx, { app.left.x, app.left.y, app.left.width, app.left.height })
+                    valid := false
+                    music_info := Music_Info{}
+                    ext := filepath.ext(cursor.name)
+                    switch ext
+                    {
+                        case ".mp3":
+                            music_info = parse_mp3(cursor.fullpath)
+                            valid = true
+                        case ".flac":
+                            music_info = parse_flac(cursor.fullpath)
+                            valid = true
+                        case ".wav":
+                            valid = true
+                        case ".ogg":
+                            valid = true
+                    }
+                        // request_redraw(ctx, { app.left.x, app.left.y, app.left.width, app.left.height })
+
+                    if valid
+                    {
+                        add_music_to_queue(app, cursor.fullpath)
+                        fmt.println(music_info)
+
+                        title := ""
+                        if music_info.artist != "" && music_info.title != ""
+                        {
+                            title = fmt.tprint(music_info.artist, "-", music_info.title, "- msc")
+                        }
+                        else
+                        {
+                            title = fmt.tprint(cursor.name, "- msc")
+                        }
+                        fmt.println(title)
+                        title_ := win32.utf8_to_wstring(title, context.allocator)
+                        defer free(title_)
+                        win32.SetWindowTextW(app.win_handle, title_)
+                    }
                 }
                 else
                 {
-                    // fmt.println("waaa", cursor, ext)
-                    // wcscpy_s(app.current_path, cursor.filename.length, cursor.filename.data)
-                    // app.file_list = platform_list_file(app, app.current_path)
-                    // app.left.scroll = 0
+                    new_path = cursor.fullpath
                 }
                 ctx.redraw = true
             }
         }
 
         at_y += item_height
+    }
+
+    if new_path != ""
+    {
+        fmt.println(new_path)
+        change_current_path(app, new_path)
+        app.left.scroll = 0
     }
 }
 
@@ -299,7 +346,7 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
     // ---------- SPEED
     set_text_align(ctx, TA_RIGHT)
     set_text_color(ctx, 1)
-    str := fmt.tprintf("%.1fx", app.speed)
+    str := fmt.tprintf(int(app.speed * 100) % 10 == 0 ? "%.1fx" : "%.2fx", app.speed)
     label(ctx, button_play.x - loop_size.w - 10, button_play.y + (button_play.h - FONT_HEIGHT) / 2, str)
 
     // ---------- PLAY BUTTON
