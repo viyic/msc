@@ -164,7 +164,8 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                 {
                     defer delete(path)
                     // reset_queue(&app)
-                    add_music_to_queue(&app, path)
+                    music_info, ok := get_music_info_from_path(path)
+                    if ok do add_music_to_queue(&app, music_info)
                     fmt.println("playing \"", path, "\"")
                     // print_music_title(filename)
                     InvalidateRect(win_handle, nil, TRUE)
@@ -395,6 +396,7 @@ ui_context_create :: proc(win_handle: win32.HWND) -> Ui_Context
 
     ctx: Ui_Context
     ctx.win_handle = win_handle
+    ctx.text_align = TA_CENTER
     // ctx.next_cursor = .ARROW
 
     win: RECT

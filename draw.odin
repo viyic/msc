@@ -42,7 +42,16 @@ set_text_color :: proc(ctx: ^Ui_Context, col: [3]f32)
     win32.SetTextColor(ctx.hdc, win32.RGB(r, g, b))
 }
 
-button :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int, str: string, clip := Rect{}) -> bool
+button :: proc(
+    ctx: ^Ui_Context,
+    x, y, w, h: int,
+    str: string,
+    clip := Rect{},
+    style := Button_Style{
+        text_align = TA_CENTER,
+        inset = 5
+    }
+) -> bool
 {
     result := false
     hover := false
@@ -50,7 +59,9 @@ button :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int, str: string, cl
     // @todo: tweak this
     hover_area := 50
 
-    in_clip := (clip.w == 0 && clip.h == 0) || point_in_rect(ctx.cx, ctx.cy, clip)
+    clip_exists := clip.w != 0 && clip.h != 0
+
+    in_clip := !clip_exists || point_in_rect(ctx.cx, ctx.cy, clip)
 
     if in_clip &&
        between_equal_left(x, ctx.cx, x + w) &&
@@ -79,10 +90,40 @@ button :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int, str: string, cl
                 set_color(ctx, theme.button.normal)
             }
         }
-        draw_rect(ctx, x, y, w, h)
+
+        rect := Rect{x, y, w, h}
+        if clip_exists
+        {
+            if rect.x < clip.x
+            {
+                rect.w -= clip.x - rect.x
+                rect.x = clip.x
+            }
+            if rect.y < clip.y
+            {
+                rect.h -= clip.y - rect.y
+                rect.y = clip.y
+            }
+            rect.w = min(rect.w, clip.w)
+            rect.h = min(rect.h, clip.h)
+        }
+
+        // @todo: use a workaround since we don't have this
+        // region_handle: win32.HRGN = win32.CreateRectRgn(rect.x, rect.y, x1(rect), y1(rect))
+        // win32.SelectClipRgn(ctx.hdc, region_handle)
+
+        draw_rect(ctx, rect)
         set_text_color(ctx, theme.text)
-        label(ctx, x + w / 2, y + (h - FONT_HEIGHT) / 2, str)
-        set_text_color(ctx, { 0, 0, 0 })
+        set_text_align(ctx, style.text_align.x)
+        x_ := x
+        if style.text_align.x == TA_CENTER do x_ += w / 2
+        else if style.text_align.x == TA_RIGHT do x_ += w - style.inset.x
+        else do x_ += style.inset.x / 2
+        label(ctx, x_, y + (h - FONT_HEIGHT) / 2, str)
+        set_text_color(ctx, 0)
+
+        // win32.DeleteObject(HGDIOBJ(region_handle))
+        // win32.SelectClipRgn(ctx.hdc, nil)
     }
     else
     {
@@ -150,7 +191,7 @@ slider :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int, str: string, cl
         }
         draw_rect(ctx, x, y, w, h)
         set_text_color(ctx, theme.text)
-        label(ctx, x + w / 2, y + (h - FONT_HEIGHT) / 2, str)
+        label(ctx, x_, y + (h - FONT_HEIGHT) / 2, str)
         set_text_color(ctx, { 0, 0, 0 })
     }
     else
@@ -172,6 +213,9 @@ slider :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int, str: string, cl
 
 set_text_align :: proc(ctx: ^Ui_Context, text_align: u32)
 {
+    if ctx.text_align == text_align do return
+
+    ctx.text_align = text_align
     win32.SetTextAlign(ctx.hdc, text_align);
 }
 

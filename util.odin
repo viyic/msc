@@ -96,3 +96,13 @@ win32_open_file_dialog :: proc(filter: string, allocator := context.allocator) -
 
     return
 }
+
+x1 :: #force_inline proc(rect: Rect) -> int
+{
+    return rect.x + rect.w
+}
+
+y1 :: #force_inline proc(rect: Rect) -> int
+{
+    return rect.y + rect.h
+}

@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:runtime"
 import "core:os"
 import "core:strings"
+import "core:path/filepath"
 import win32 "core:sys/windows"
 import ma "vendor:miniaudio"
 
@@ -29,74 +30,21 @@ ma_engine_data_callback :: proc "cdecl" (pDevice: ^ma.device, pFramesOut, pFrame
 
 reset_queue :: proc(app: ^App)
 {
-    for i: u32 = 0; i < app.queue_max_count; i += 1
-    {
+    // for i: u32 = 0; i < app.queue_max_count; i += 1
+    // {
         // music: ^Music_File = &app->queue[i]
         // music.active = false
         // music.next = nil
-    }
+    // }
     // app.queue_first = nil
 }
 
-add_music_to_queue :: proc(app: ^App, file_name: string)
+add_music_to_queue :: proc(app: ^App, music_info: Music_Info)
 {
+    play_music(app, music_info.full_path)
+    append(&app.music_infos, music_info)
+    append(&app.queue, len(app.music_infos) - 1)
     /*
-    if !is_file_valid(file_name) ||
-       !is_file_music(file_name)
-    {
-        return
-    }
-
-    Music_File *empty_music = NULL
-    for (u32 i = 0; i < app->queue_max_count; i++)
-    {
-        Music_File *music = app->queue + i
-        if (music->active)
-        {
-            continue
-        }
-        else
-        {
-            empty_music = music
-            break
-        }
-    }
-    if (empty_music)
-    {
-        assert(app->main_arena.temp_count == 0)
-
-        empty_music->active = true
-        empty_music->file_name.length = wcslen(file_name) + 1
-        empty_music->file_name.data = cast(wchar *) push_size(&app->main_arena, sizeof(wchar) * empty_music->file_name.length)
-        strcpy_len(empty_music->file_name.data, empty_music->file_name.length, file_name)
-
-        empty_music->info = get_id3_frames(app, file_name)
-        if (empty_music->info.title.length == 0)
-        {
-            String name = get_file_name(empty_music->file_name)
-            empty_music->info.title = name
-            // empty_music->title.data = cast(wchar *) push_size(&app->main_arena, sizeof(wchar) * empty_music->title.length)
-            // strcpy_len(empty_music->title.data, empty_music->title.length, name.data)
-        }
-
-        empty_music->next = NULL
-
-        if (app->queue_first)
-        {
-            Music_File *last = app->queue_first
-            for (Music_File *cursor = app->queue_first; cursor; cursor = cursor->next)
-            {
-                last = cursor
-            }
-            if (last)
-            {
-                last->next = empty_music
-            }
-            else
-            {
-                assert(!"no!!!")
-            }
-
             ma_resource_manager_data_source data_source
             ma_resource_manager_data_source_config resourceManagerDataSourceConfig = ma_resource_manager_data_source_config_init()
             resourceManagerDataSourceConfig.pFilePathW = file_name
@@ -111,7 +59,6 @@ add_music_to_queue :: proc(app: ^App, file_name: string)
         {
             */
             // app->queue_first = empty_music
-            play_music(app, file_name)
             // ma.sound_get_length_in_seconds(&app.sound, &empty_music.length)
             // app.length = empty_music.length
             /*
@@ -245,10 +192,7 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
     }
 
     handle, err := os.open(file_name)
-    if err != os.ERROR_NONE
-    {
-        return result
-    }
+    if err != os.ERROR_NONE do return result
     defer os.close(handle)
 
     id3_header := [10]u8{}
@@ -296,7 +240,7 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
 
         fmt.println(cursor, frame_id, frame_size)
 
-        if cursor + frame_size > size // frame_id == "APIC"
+        if cursor + frame_size > size
         {
             break
         }
@@ -357,10 +301,7 @@ parse_flac :: proc(file_name: string) -> Music_Info
     result := Music_Info{};
 
     handle, err := os.open(file_name)
-    if err != os.ERROR_NONE
-    {
-        return result
-    }
+    if err != os.ERROR_NONE do return result
     defer os.close(handle)
 
     flac_header := [8]u8{}
@@ -461,4 +402,50 @@ parse_flac :: proc(file_name: string) -> Music_Info
     }
     */
     return result;
+}
+
+jump_queue :: proc(app: ^App, queue_index: int)
+{
+    music_info := get_music_info_from_queue(app, queue_index)
+    play_music(app, music_info.full_path)
+    app.playing_index = queue_index
+
+    title := ""
+    if music_info.artist != "" && music_info.title != ""
+    {
+        title = fmt.tprint(music_info.artist, "-", music_info.title, "- msc")
+    }
+    else
+    {
+        title = fmt.tprint(filepath.base(music_info.full_path), "- msc")
+    }
+    fmt.println(title)
+    title_ := win32.utf8_to_wstring(title, context.allocator)
+    defer free(title_)
+    win32.SetWindowTextW(app.win_handle, title_)
+}
+
+get_music_info_from_queue :: #force_inline proc(app: ^App, queue_index: int) -> Music_Info
+{
+    return app.music_infos[app.queue[queue_index]]
+}
+
+get_music_info_from_path :: proc(path: string) -> (Music_Info, bool)
+{
+    music_info := Music_Info{}
+    ok := true
+    ext := filepath.ext(path)
+    switch ext
+    {
+        case ".mp3":
+            music_info = parse_mp3(path)
+        case ".flac":
+            music_info = parse_flac(path)
+        case ".wav":
+        case ".ogg":
+        case:
+            ok = false
+    }
+
+    return music_info, ok
 }

@@ -15,7 +15,6 @@ app_init :: proc(app: ^App, win_handle: win32.HWND) -> ma.result
     app.volume = 0.5
     app.paused = true
     app.speed = 1
-    app.queue_max_count = 128
 
     result := ma.engine_init(nil, &app.engine)
     if result != ma.result.SUCCESS
@@ -42,10 +41,9 @@ app_run :: proc(app: ^App, ctx: ^Ui_Context)
 
     set_color(ctx, theme.background)
     draw_rect(ctx, 0, 0, ctx.width, ctx.height)
-    // draw_text(ctx, 100, 100, "HEY")
 
     ui_panel_left(app, ctx)
-    // ui_right_panel(app, ctx)
+    ui_panel_right(app, ctx)
     ui_panel_bottom(app, ctx)
 
     if ctx.next_cursor == .NONE
@@ -58,6 +56,16 @@ app_run :: proc(app: ^App, ctx: ^Ui_Context)
         win32.InvalidateRect(ctx.win_handle, nil, win32.TRUE)
         // refresh_draw()
     }
+}
+
+change_current_path :: proc(app: ^App, new_path: string)
+{
+    if len(app.file_list) > 0
+    {
+        os.file_info_slice_delete(app.file_list)
+    }
+    app.file_list = []os.File_Info{}
+    app.current_path = new_path
 }
 
 theme_init_default :: proc(theme: ^Theme)
@@ -74,19 +82,6 @@ ui_panel_left :: proc(app: ^App, ctx: ^Ui_Context)
     // ---------- QUEUE
     ui_music_list(app, ctx)
     // ui_music_grid(app, ctx)
-
-    set_color(ctx, theme.background)
-    // draw_rect(ctx, 0, 0, width, 5)
-}
-
-change_current_path :: proc(app: ^App, new_path: string)
-{
-    if len(app.file_list) > 0
-    {
-        os.file_info_slice_delete(app.file_list)
-    }
-    app.file_list = []os.File_Info{}
-    app.current_path = new_path
 }
 
 ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
@@ -94,29 +89,32 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
     width := ctx.width - ctx.width / 3
     height := ctx.height - 55
     x := 5
-    padding := 5
+    margin := 5 // inset
+    padding := 5 // for items
     item_height := FONT_HEIGHT + padding
 
-    if (ctx.scroll != 0)
+    clip := app.left
+    clip.x += margin
+    clip.y += margin
+    clip.w -= margin * 2
+    clip.h -= margin * 2
+
+    if ctx.scroll != 0
     {
         app.left.scroll = max(0, min(app.left.scroll - ctx.scroll / 100, 1))
         ctx.redraw = true
     }
 
-    at_y := 5
+    at_y := margin
 
     if len(app.file_list) == 0
     {
         handle, err_open := os.open(app.current_path)
-        if err_open != os.ERROR_NONE {
-            return
-        }
+        if err_open != os.ERROR_NONE do return
         defer os.close(handle)
 
         file_list, err_read_dir := os.read_dir(handle, 0)
-        if err_read_dir != os.ERROR_NONE {
-            return
-        }
+        if err_read_dir != os.ERROR_NONE do return
 
         app.file_list = file_list
     }
@@ -149,46 +147,18 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
            at_y < list_scroll + height
         {
             rect := get_text_size(ctx, cursor.name)
-            if button(ctx, x, at_y - list_scroll, int(rect.w) + padding, int(rect.h) + padding, cursor.name, app.left)
+            if button(ctx, x, at_y - list_scroll, rect.w + padding, rect.h + padding, cursor.name, clip, { text_align = {TA_LEFT, TA_CENTER}, inset = 5})
             {
                 if !cursor.is_dir
                 {
-                    valid := false
-                    music_info := Music_Info{}
-                    ext := filepath.ext(cursor.name)
-                    switch ext
-                    {
-                        case ".mp3":
-                            music_info = parse_mp3(cursor.fullpath)
-                            valid = true
-                        case ".flac":
-                            music_info = parse_flac(cursor.fullpath)
-                            valid = true
-                        case ".wav":
-                            valid = true
-                        case ".ogg":
-                            valid = true
-                    }
-                        // request_redraw(ctx, { app.left.x, app.left.y, app.left.width, app.left.height })
+                    music_info, ok := get_music_info_from_path(cursor.fullpath)
+                    // request_redraw(ctx, { app.left.x, app.left.y, app.left.width, app.left.height })
 
-                    if valid
+                    if ok
                     {
-                        add_music_to_queue(app, cursor.fullpath)
+                        add_music_to_queue(app, music_info)
+                        jump_queue(app, len(app.queue) - 1)
                         fmt.println(music_info)
-
-                        title := ""
-                        if music_info.artist != "" && music_info.title != ""
-                        {
-                            title = fmt.tprint(music_info.artist, "-", music_info.title, "- msc")
-                        }
-                        else
-                        {
-                            title = fmt.tprint(cursor.name, "- msc")
-                        }
-                        fmt.println(title)
-                        title_ := win32.utf8_to_wstring(title, context.allocator)
-                        defer free(title_)
-                        win32.SetWindowTextW(app.win_handle, title_)
                     }
                 }
                 else
@@ -208,6 +178,12 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
         change_current_path(app, new_path)
         app.left.scroll = 0
     }
+
+    set_color(ctx, theme.background)
+    draw_rect(ctx, Rect{app.left.x, app.left.y, app.left.w, margin})
+    draw_rect(ctx, Rect{app.left.x, app.left.y, margin, app.left.h})
+    draw_rect(ctx, Rect{x1(app.left) - margin, app.left.y, ctx.width - (x1(app.left) - margin), app.left.h})
+    draw_rect(ctx, Rect{app.left.x, y1(app.left) - margin, app.left.w, ctx.height - (y1(app.left) - margin)})
 }
 
 ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
@@ -317,7 +293,6 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
     }
 
     // ---------- LOOP
-    set_text_align(ctx, TA_CENTER)
     loop_text := "loop: x"
     if (app.loop == .SINGLE)
     {
@@ -350,8 +325,7 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
     label(ctx, button_play.x - loop_size.w - 10, button_play.y + (button_play.h - FONT_HEIGHT) / 2, str)
 
     // ---------- PLAY BUTTON
-    set_text_align(ctx, TA_CENTER)
-    if (button(ctx, button_play.x, button_play.y, button_play.w, button_play.h, ""))
+    if button(ctx, button_play.x, button_play.y, button_play.w, button_play.h, playing)
     {
         toggle_pause_music(app)
         // refresh_draw()
@@ -359,8 +333,78 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
         ctx.redraw = true
     }
     // draw_ellipse(ctx, button_play.x, button_play.y, button_play.x + button_play.w, button_play.y + button_play.h)
+}
 
-    set_text_color(ctx, theme.text)
-    label(ctx, button_play.x + button_play.w / 2, button_play.y + (button_play.h - FONT_HEIGHT) / 2, playing)
+ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
+{
+    width := app.right.w
+    x := app.right.x
+    margin := 5
+    padding := 5
+    item_height := FONT_HEIGHT + padding
 
+    if ctx.scroll != 0
+    {
+
+    }
+
+    set_color(ctx, 0.2)
+    draw_rect(ctx, x, margin, width - margin, app.right.h)
+
+    button_add := Rect{}
+    button_add.w = 20
+    button_add.h = 20
+    button_add.x = x + (width - button_add.w) / 2
+    button_add.y = item_height * (len(app.music_infos) + 1) + item_height / 2
+
+    at_y := margin
+
+    set_text_align(ctx, TA_CENTER)
+    set_text_color(ctx, 1)
+    label(ctx, x + width / 2, at_y + padding / 2, "List")
+    at_y += item_height
+
+    // ---------- QUEUE
+    list_width := width - 3 * margin
+    clip := Rect{x + margin, at_y, list_width, app.right.h - at_y}
+    for music_info_index, queue_index in app.queue
+    {
+        music_info := app.music_infos[music_info_index]
+
+        str := fmt.tprintf("%v%v%v%v",
+            app.playing_index == music_info_index ? ">" : "",
+            len(music_info.title) > 0 ? music_info.title : filepath.base(music_info.full_path),
+            len(music_info.artist) > 0 ? " : " : "",
+            music_info.artist)
+
+        if button(ctx, x + margin, at_y, list_width, item_height, str, clip, { text_align = {TA_LEFT, TA_CENTER}, inset = 5 })
+        {
+            jump_queue(app, queue_index)
+            // request_redraw(ctx, { app.right.x, app.right.y, app.right.width, app.right.height })
+        }
+
+        // i32 length_min = cast(i32) (cursor.length / 60)
+        // i32 length_sec = cast(i32) cursor.length % 60
+        // String_Null length = push_printf_null(&app.temp_arena, L"%d.%.2d", length_min, length_sec)
+        // set_text_align(ctx, TA_RIGHT)
+        // label(ctx, x + width - 15, at_y, length)
+
+        // set_text_color(ctx, 0)
+
+        at_y += item_height
+    }
+
+    // ---------- ADD TO QUEUE
+    /*
+    set_text_align(ctx, TEXT_ALIGN_CENTER)
+    if button(ctx, button_add.x, button_add.y, button_add.w, button_add.h, L"+")
+    {
+        wchar filename[MAX_PATH]
+        if (platform_open_music_dialog(filename, MAX_PATH))
+        {
+            add_music_to_queue(app, filename)
+            request_redraw(ctx, { app.right.x, app.right.y, app.right.width, app.right.height })
+        }
+    }
+    */
 }

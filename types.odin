@@ -28,10 +28,9 @@ App :: struct
     current_path: string
     file_list: []os.File_Info
 
-    // queue: [dynamic]Music_File
-    queue_max_count: u32
-    playing_index: u32
-    // queue_first: ^Music_File
+    music_infos: [dynamic]Music_Info
+    queue: [dynamic]int
+    playing_index: int
 
     last_click_cx, last_click_cy: int
     last_click_time: u64
@@ -45,6 +44,7 @@ Ui_Context :: struct
     width, height: int
     scroll: f32
     msg: Ui_Message
+    text_align: u32
 
     redraw: b32
     redraw_rect: win32.RECT
@@ -115,4 +115,18 @@ Music_Info :: struct
     album: string
     release_time: string
     full_path: string
+}
+
+Button_Style :: struct
+{
+    text_align: [2]u32
+    inset: [2]int
+}
+
+button_style_default :: proc() -> Button_Style
+{
+    return Button_Style{
+        text_align = {TA_CENTER, TA_CENTER}
+        inset = 5
+    }
 }
