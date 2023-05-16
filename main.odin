@@ -162,10 +162,10 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                 path, ok := win32_open_file_dialog("Music Files (.mp3, .flac, .wav, .ogg)\u0000*.mp3;*.flac;*.wav;*.ogg\u0000")
                 if ok
                 {
-                    defer delete(path)
                     // reset_queue(&app)
                     music_info, ok := get_music_info_from_path(path)
                     if ok do add_music_to_queue(&app, music_info)
+                    else do delete(path)
                     fmt.println("playing \"", path, "\"")
                     // print_music_title(filename)
                     InvalidateRect(win_handle, nil, TRUE)
@@ -306,7 +306,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
             InvalidateRect(win_handle, nil, TRUE)
 
         case WM_LBUTTONDOWN:
-            if wparam == MK_LBUTTON
+            if wparam & MK_LBUTTON != 0
             {
                 if !app.mouse_down
                 {

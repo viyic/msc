@@ -51,8 +51,8 @@ get_text_size :: proc(ctx: ^Ui_Context, str: string) -> Rect
         font_old = HFONT(SelectObject(hdc, HGDIOBJ(font_default)))
     }
     length_size: win32.SIZE
-    str_ := utf8_to_wstring(str)
-    GetTextExtentPoint32W(hdc, str_, i32(len(str)), &length_size)
+    str_ := utf8_to_utf16(str)
+    GetTextExtentPoint32W(hdc, &str_[0], i32(len(str_)), &length_size)
     if ctx.msg != .PAINT
     {
         SelectObject(hdc, HGDIOBJ(font_old))

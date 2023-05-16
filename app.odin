@@ -11,10 +11,12 @@ import ma "vendor:miniaudio"
 app_init :: proc(app: ^App, win_handle: win32.HWND) -> ma.result
 {
     app.win_handle = win_handle
-    app.current_path = `D:\msc\`
+    app.current_path = strings.clone(`D:\msc`)
+    update_file_list(app)
     app.volume = 0.5
     app.paused = true
     app.speed = 1
+    app.playing_index = -1
 
     result := ma.engine_init(nil, &app.engine)
     if result != ma.result.SUCCESS
@@ -58,6 +60,18 @@ app_run :: proc(app: ^App, ctx: ^Ui_Context)
     }
 }
 
+update_file_list :: proc(app: ^App)
+{
+    handle, err_open := os.open(app.current_path)
+    if err_open != os.ERROR_NONE do return
+    defer os.close(handle)
+
+    file_list, err_read_dir := os.read_dir(handle, 0)
+    if err_read_dir != os.ERROR_NONE do return
+
+    app.file_list = file_list
+}
+
 change_current_path :: proc(app: ^App, new_path: string)
 {
     if len(app.file_list) > 0
@@ -65,7 +79,9 @@ change_current_path :: proc(app: ^App, new_path: string)
         os.file_info_slice_delete(app.file_list)
     }
     app.file_list = []os.File_Info{}
+    delete(app.current_path)
     app.current_path = new_path
+    update_file_list(app)
 }
 
 theme_init_default :: proc(theme: ^Theme)
@@ -107,18 +123,6 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
 
     at_y := margin
 
-    if len(app.file_list) == 0
-    {
-        handle, err_open := os.open(app.current_path)
-        if err_open != os.ERROR_NONE do return
-        defer os.close(handle)
-
-        file_list, err_read_dir := os.read_dir(handle, 0)
-        if err_read_dir != os.ERROR_NONE do return
-
-        app.file_list = file_list
-    }
-
     filter_proc :: proc(item: os.File_Info) -> bool
     {
         ext := filepath.ext(item.name)
@@ -128,17 +132,23 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
              ext == ".wav" ||
              ext == ".ogg")
     }
-    file_list := slice.filter(app.file_list, filter_proc)
-
-    defer {
-        delete(file_list)
-    }
+    file_list_ := slice.filter(app.file_list, filter_proc)
+    file_list := slice.concatenate([][]os.File_Info{
+        []os.File_Info{
+            os.File_Info{
+                name = "..",
+                is_dir = true
+            }
+        },
+        file_list_
+    })
+    delete(file_list_)
 
     // @todo: figure out how resizing with scrolled panel work, anchor on top left?
     list_height := item_height * (len(file_list) + 1)
     list_scroll := int(f32(list_height - height) * app.left.scroll)
 
-    new_path := ""
+    new_path := app.current_path
 
     set_text_align(ctx, TA_CENTER)
     for cursor in file_list
@@ -157,13 +167,22 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
                     if ok
                     {
                         add_music_to_queue(app, music_info)
-                        jump_queue(app, len(app.queue) - 1)
+                        if win32.GetKeyState(win32.VK_SHIFT) >= 0 do jump_queue(app, len(app.queue) - 1)
                         fmt.println(music_info)
                     }
                 }
                 else
                 {
-                    new_path = cursor.fullpath
+                    if cursor.name == ".."
+                    {
+                        clean := filepath.clean(app.current_path, context.temp_allocator)
+                        up, _ := filepath.split(clean)
+                        new_path = strings.clone(up)
+                    }
+                    else
+                    {
+                        new_path = strings.clone(cursor.fullpath)
+                    }
                 }
                 ctx.redraw = true
             }
@@ -172,7 +191,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
         at_y += item_height
     }
 
-    if new_path != ""
+    if new_path != app.current_path
     {
         fmt.println(new_path)
         change_current_path(app, new_path)
@@ -349,7 +368,7 @@ ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
     }
 
     set_color(ctx, 0.2)
-    draw_rect(ctx, x, margin, width - margin, app.right.h)
+    draw_rect(ctx, x, margin, width - margin, app.right.h - margin)
 
     button_add := Rect{}
     button_add.w = 20
@@ -359,10 +378,16 @@ ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
 
     at_y := margin
 
+    title_height := item_height + 2 * padding
+
+    set_color(ctx, 0.15)
+    draw_rect(ctx, x, at_y, width - margin, title_height)
+
     set_text_align(ctx, TA_CENTER)
     set_text_color(ctx, 1)
-    label(ctx, x + width / 2, at_y + padding / 2, "List")
-    at_y += item_height
+    label(ctx, x + width / 2, at_y + (title_height - item_height) / 2, "List")
+
+    at_y += title_height + margin
 
     // ---------- QUEUE
     list_width := width - 3 * margin
@@ -372,8 +397,8 @@ ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
         music_info := app.music_infos[music_info_index]
 
         str := fmt.tprintf("%v%v%v%v",
-            app.playing_index == music_info_index ? ">" : "",
-            len(music_info.title) > 0 ? music_info.title : filepath.base(music_info.full_path),
+            app.playing_index == music_info_index ? "> " : "  ",
+            len(music_info.title) > 0 ? music_info.title : filepath.stem(music_info.full_path),
             len(music_info.artist) > 0 ? " : " : "",
             music_info.artist)
 
@@ -407,4 +432,9 @@ ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
         }
     }
     */
+
+    set_color(ctx, 0.2)
+    draw_rect(ctx, x + width - 2 * margin, margin + title_height, margin, app.right.h - margin - title_height)
+    set_color(ctx, theme.background)
+    draw_rect(ctx, x + width - margin, app.right.y, margin, app.right.h)
 }
