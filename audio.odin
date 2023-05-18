@@ -21,7 +21,7 @@ ma_engine_data_callback :: proc "cdecl" (pDevice: ^ma.device, pFramesOut, pFrame
 
     ma.engine_read_pcm_frames(pEngine, pFramesOut, u64(frameCount), nil)
 
-    if (ma.sound_at_end(&app.sound))
+    if ma.sound_at_end(&app.sound)
     {
         handle_end_of_music(&app)
         win32.InvalidateRect(app.win_handle, nil, win32.TRUE)
@@ -80,17 +80,17 @@ play_music :: proc(app: ^App, path: string)
         {
             ma.device_start(app.engine.pDevice)
         }
-        if app.sound.pDataSource != nil
+        if sound_exists(app)
         {
             ma.sound_uninit(&app.sound)
         }
         result := ma.sound_init_from_file_w(&app.engine, win32.utf8_to_wstring(path), u32(ma.sound_flags.STREAM | ma.sound_flags.NO_SPATIALIZATION), nil, nil, &app.sound)
-        if (result == ma.result.SUCCESS)
+        if result == ma.result.SUCCESS
         {
             ma.sound_set_pitch(&app.sound, app.speed)
             ma.sound_start(&app.sound)
             // start_refresh_timer()
-            win32.SetTimer(app.win_handle, REFRESH_TIMER, 200, nil)
+            win32.SetTimer(app.win_handle, REFRESH_TIMER, 100, nil)
             app.paused = false
 
             // @todo: implement this for better seamless transition
@@ -113,35 +113,31 @@ toggle_pause_music :: proc(app: ^App)
     {
         ma.device_start(app.engine.pDevice)
     }
-    // if (app.queue_first)
-    // {
-        if ma.sound_at_end(&app.sound) // @analyze: not needed?
+
+    if !sound_exists(app)
+    {
+        if app.loop == .DELAY && app.playing_index > -1
         {
-            ma.sound_seek_to_pcm_frame(&app.sound, 0)
+            app.paused = !app.paused
+        }
+        else
+        {
+            if len(app.queue) > 0 do jump_queue(app, 0)
+        }
+    }
+    else
+    {
+        if app.paused
+        {
             ma.sound_start(&app.sound)
             app.paused = false
         }
         else
         {
-            if app.sound.pDataSource == nil
-            {
-                if len(app.queue) > 0 do jump_queue(app, 0)
-            }
-            else
-            {
-                if app.paused
-                {
-                    ma.sound_start(&app.sound)
-                    app.paused = false
-                }
-                else
-                {
-                    ma.sound_stop(&app.sound)
-                    app.paused = true
-                }
-            }
+            ma.sound_stop(&app.sound)
+            app.paused = true
         }
-    // }
+    }
 }
 
 handle_end_of_music :: proc(app: ^App)
@@ -149,16 +145,21 @@ handle_end_of_music :: proc(app: ^App)
     if app.loop == .SINGLE
     {
         ma.sound_start(&app.sound)
-        // win32.SetWindowTextW(app.win_handle, cursor.name)
+    }
+    else if app.loop == .DELAY
+    {
+        ma.sound_stop(&app.sound)
+        ma.sound_uninit(&app.sound)
+        win32.SetTimer(app.win_handle, DELAY_TIMER, u32(app.delay_time * 1000), nil)
+        fmt.println("DELAY_TIMER start")
     }
     else
     {
-        // end of queue
-        if app.playing_index < len(app.queue) - 1
+        if -1 < app.playing_index && app.playing_index < len(app.queue) - 1
         {
             jump_queue(app, app.playing_index + 1)
         }
-        else
+        else // end of playlist
         {
             if app.loop == .PLAYLIST
             {
@@ -168,6 +169,7 @@ handle_end_of_music :: proc(app: ^App)
             {
                 jump_queue(app, -1)
                 ma.sound_stop(&app.sound)
+                ma.sound_uninit(&app.sound)
                 app.paused = true
                 win32.SetWindowTextW(app.win_handle, win32.L("msc"))
             }
@@ -189,16 +191,21 @@ change_speed :: proc(app: ^App, amount: int)
         }
     }
 
-    if app.sound.pDataSource != nil
+    if sound_exists(app)
     {
         ma.sound_set_pitch(&app.sound, app.speed)
     }
 }
 
+sound_exists :: #force_inline proc(app: ^App) -> bool
+{
+    return app.sound.pDataSource != nil
+}
+
 parse_mp3 :: proc(file_name: string) -> Music_Info
 {
     result := Music_Info{
-        full_path = file_name
+        full_path = strings.clone(file_name)
     }
 
     handle, err := os.open(file_name)
@@ -259,26 +266,25 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
 
         if frame_id == "TIT2"
         {
-            // @ntoe: + 1 for ^C, - 2 for ^C and null terminator
-            title := string(frame_body)
-            title = strings.to_valid_utf8(title, "", context.temp_allocator)
-            title, _ = strings.remove_all(title, "\x00", context.temp_allocator)
+            title := parse_text(frame_body)
             result.title = strings.clone(title)
             // fmt.println(result.title)
         }
         else if frame_id == "TALB"
         {
-            album := string(frame_body)
-            album = strings.to_valid_utf8(album, "", context.temp_allocator)
-            album, _ = strings.remove_all(album, "\x00", context.temp_allocator)
+            album := parse_text(frame_body)
+            // album := string(frame_body)
+            // album = strings.to_valid_utf8(album, "", context.temp_allocator)
+            // album, _ = strings.remove_all(album, "\x00", context.temp_allocator)
             result.album = strings.clone(album)
             // fmt.println(result.album)
         }
         else if frame_id == "TDOR"
         {
-            time := string(frame_body)
-            time = strings.to_valid_utf8(time, "", context.temp_allocator)
-            time, _ = strings.remove_all(time, "\x00", context.temp_allocator)
+            time := parse_text(frame_body)
+            // time := string(frame_body)
+            // time = strings.to_valid_utf8(time, "", context.temp_allocator)
+            // time, _ = strings.remove_all(time, "\x00", context.temp_allocator)
             result.release_time = strings.clone(time)
             // fmt.println(result.release_time)
         }
@@ -287,9 +293,10 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
              frame_id == "TPE2" ||
              frame_id == "TPE1")
         {
-            artist := string(frame_body)
-            artist = strings.to_valid_utf8(artist, "", context.temp_allocator)
-            artist, _ = strings.remove_all(artist, "\x00", context.temp_allocator)
+            artist := parse_text(frame_body)
+            // artist := string(frame_body)
+            // artist = strings.to_valid_utf8(artist, "", context.temp_allocator)
+            // artist, _ = strings.remove_all(artist, "\x00", context.temp_allocator)
             result.artist = strings.clone(artist)
             // fmt.println(result.artist)
         }
@@ -304,12 +311,47 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
     }
 
     return result
+
+    parse_text :: proc(frame_body: []u8) -> string
+    {
+        result := ""
+        encoding := frame_body[0]
+        if encoding == '\x00' // ASCII
+        {
+            result = string(frame_body[1:])
+        }
+        else if encoding == '\x01' // Unicode
+        {
+            is_little_endian :=
+                frame_body[1] == '\u00ff' && // FF
+                frame_body[2] == '\u00fe' // FE
+            if is_little_endian
+            {
+                str, ok := u8_to_u16(frame_body[3:])
+                if ok do result, _ = win32.utf16_to_utf8(str)
+                else do fmt.println("[parse_mp3] unicode bytes not divisible by 2:", frame_body)
+            }
+            else
+            {
+                fmt.println("[parse_mp3] big endian detected:", frame_body)
+            }
+            // fmt.println("unicode test", result, "\n", frame_body[:])
+        }
+        else if encoding == '\x03' // UTF-8
+        {
+            result = string(frame_body[1:])
+            result = strings.to_valid_utf8(result, "", context.temp_allocator)
+        }
+        result, _ = strings.remove_all(result, "\x00", context.temp_allocator)
+
+        return result
+    }
 }
 
 parse_flac :: proc(file_name: string) -> Music_Info
 {
     result := Music_Info{
-        full_path = file_name
+        full_path = strings.clone(file_name)
     }
 
     handle, err := os.open(file_name)
@@ -416,8 +458,10 @@ parse_flac :: proc(file_name: string) -> Music_Info
     return result;
 }
 
-jump_queue :: proc(app: ^App, queue_index: int)
+jump_queue :: proc(app: ^App, queue_index: int, caller := #caller_location)
 {
+    fmt.println(caller)
+    if app.loop == .DELAY do win32.KillTimer(app.win_handle, DELAY_TIMER)
     app.playing_index = queue_index
     if app.playing_index == -1 do return // allow -1
 
@@ -431,7 +475,7 @@ jump_queue :: proc(app: ^App, queue_index: int)
     }
     else
     {
-        title = fmt.tprint(filepath.base(music_info.full_path), "- msc")
+        title = fmt.tprint(filepath.stem(music_info.full_path), "- msc")
     }
     fmt.println(title)
     title_ := win32.utf8_to_wstring(title, context.allocator)

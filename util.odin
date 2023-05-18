@@ -106,3 +106,17 @@ y1 :: #force_inline proc(rect: Rect) -> int
 {
     return rect.y + rect.h
 }
+
+u8_to_u16 :: proc(bytes: []u8, allocator := context.temp_allocator) -> ([]u16, bool)
+{
+    if len(bytes) % 2 != 0 do return {}, false
+
+    result := make([]u16, len(bytes) / 2, allocator)
+    for index := 0; index < len(result); index += 1
+    {
+        result[index] = u16(bytes[index * 2]) |
+                        u16(bytes[index * 2 + 1]) << 8
+    }
+
+    return result, true
+}

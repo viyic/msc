@@ -84,7 +84,10 @@ main :: proc()
 
     cursor_arrow = LoadCursorA(nil, IDC_ARROW) // LoadCursorW?
     cursor_hand = LoadCursorA(nil, IDC_HAND)
-    SetTimer(win_handle, TRACK_TIMER, 1000, nil)
+    when USE_TRACKING_ALLOCATOR
+    {
+        SetTimer(win_handle, TRACK_TIMER, 1000, nil)
+    }
 
     msg: MSG
     for GetMessageW(&msg, nil, 0, 0)
@@ -142,8 +145,29 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                 {
                     invalidate := RECT{ 0, i32(ctx.height - 100), i32(ctx.width), i32(ctx.height) }
                     InvalidateRect(win_handle, &invalidate, TRUE)
-                    SetTimer(win_handle, REFRESH_TIMER, 200, nil)
+                    // SetTimer(win_handle, REFRESH_TIMER, 200, nil)
                 }
+                else
+                {
+                    KillTimer(app.win_handle, REFRESH_TIMER)
+                }
+            }
+            else if wparam == DELAY_TIMER
+            {
+                if sound_exists(&app)
+                {
+                    // assert(false)
+                    // ma.sound_start(&app.sound)
+                }
+                else
+                {
+                    if !app.paused
+                    {
+                        jump_queue(&app, app.playing_index)
+                    }
+                }
+                KillTimer(app.win_handle, DELAY_TIMER)
+                fmt.println("DELAY_TIMER end")
             }
             else if wparam == TRACK_TIMER
             {

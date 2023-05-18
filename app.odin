@@ -17,6 +17,7 @@ app_init :: proc(app: ^App, win_handle: win32.HWND) -> ma.result
     app.paused = true
     app.speed = 1
     app.playing_index = -1
+    app.delay_time = 5
 
     result := ma.engine_init(nil, &app.engine)
     if result != ma.result.SUCCESS
@@ -147,6 +148,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
     // @todo: figure out how resizing with scrolled panel work, anchor on top left?
     list_height := item_height * (len(file_list) + 1)
     list_scroll := int(f32(list_height - height) * app.left.scroll)
+    if list_height <= height do list_scroll = 0
 
     new_path := app.current_path
 
@@ -259,14 +261,16 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
             result := ma.data_source_get_length_in_pcm_frames(app.sound.pDataSource, &pcm_length)
             result = ma.data_source_get_data_format(app.sound.pDataSource, nil, nil, &sample_rate, nil, 0)
             if result == .SUCCESS {
-                if app.paused
-                {
-                    toggle_pause_music(app)
-                }
-                new_length := u64(f32(pcm_length) * (f32(ctx.cx) / f32(ctx.width)))
+                // if app.paused
+                // {
+                //     toggle_pause_music(app)
+                // }
+                normalized := f32(ctx.cx - play_bar.x)
+                new_length := u64(f32(pcm_length) * (normalized / f32(play_bar.w)))
                 // @analyze: less popping?
                 new_length = new_length - (new_length % u64(sample_rate))
                 ma.sound_seek_to_pcm_frame(&app.sound, new_length)
+                ctx.redraw = true
             }
         }
     }
@@ -317,9 +321,13 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
     {
         loop_text = "loop: s"
     }
-    else if (app.loop == Loop_State.PLAYLIST)
+    else if (app.loop == .PLAYLIST)
     {
         loop_text = "loop: p"
+    }
+    else if (app.loop == .DELAY)
+    {
+        loop_text = "loop: d"
     }
 
     padding := 10

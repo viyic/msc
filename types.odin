@@ -20,6 +20,7 @@ App :: struct
     cursor: f32
     length: f32
     loop: Loop_State
+    delay_time: f32 // in seconds
 
     left: Panel
     right: Panel
@@ -89,12 +90,14 @@ USE_TRACKING_ALLOCATOR :: false
 
 REFRESH_TIMER :: 1
 TRACK_TIMER :: 2
+DELAY_TIMER :: 3
 
 Loop_State :: enum
 {
     NONE,
     SINGLE,
     PLAYLIST,
+    DELAY, // @analyze: only for SINGLE, should we add one for playlist?
 }
 
 Rect :: struct
