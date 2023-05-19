@@ -45,6 +45,8 @@ main :: proc()
     win_class.hInstance = instance
     win_class.lpszClassName = class_name
     win_class.style = CS_HREDRAW | CS_VREDRAW
+    win_class.hIcon = HICON(LoadImageW(instance, win32.L("MSC_ICON"), IMAGE_ICON, LR_DEFAULTSIZE, LR_DEFAULTSIZE, 0))
+    win_class.hIconSm = HICON(LoadImageW(instance, win32.L("MSC_ICON"), IMAGE_ICON, LR_DEFAULTSIZE, LR_DEFAULTSIZE, 0))
     if !b32(RegisterClassExW(&win_class))
     {
         return
@@ -64,7 +66,7 @@ main :: proc()
     )
 
     DWMWA_USE_IMMERSIVE_DARK_MODE :: 20
-    dark_mode := true
+    dark_mode: BOOL = TRUE
     DwmSetWindowAttribute(win_handle, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_mode, size_of(dark_mode))
 
     if win_handle == nil
@@ -161,7 +163,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                 }
                 else
                 {
-                    if !app.paused
+                    if app.loop == .DELAY && !app.paused
                     {
                         jump_queue(&app, app.playing_index)
                     }

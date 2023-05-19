@@ -10,8 +10,9 @@ echo start: %hour%.%min%.%secs%
 
 
 if not exist run mkdir run
-odin build . -debug -o:none -out:"run/msc.exe"
-:: odin build . -no-bounds-check -disable-assert -o:speed -out:"run/msc.exe"
+set common_flags=-resource:resource.rc
+odin build . %common_flags% -debug -o:none -out:"run/msc.exe"
+:: odin build . %common_flags% -subsystem:windows -no-bounds-check -disable-assert -o:speed -out:"run/msc.exe"
 
 
 set hour=%time:~0,2%

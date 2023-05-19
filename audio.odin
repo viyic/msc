@@ -238,7 +238,6 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
     defer delete(id3_frames)
     os.read(handle, id3_frames)
 
-    // fmt.println(string(id3_frames[:]))
     FRAME_HEADER_SIZE :: 10
 
     cursor: u64 = 0 // id3_frames
@@ -255,8 +254,6 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
         // @todo: flags
         cursor += FRAME_HEADER_SIZE
 
-        // fmt.println(cursor, frame_id, frame_size)
-
         if cursor + frame_size > size
         {
             break
@@ -268,25 +265,16 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
         {
             title := parse_text(frame_body)
             result.title = strings.clone(title)
-            // fmt.println(result.title)
         }
         else if frame_id == "TALB"
         {
             album := parse_text(frame_body)
-            // album := string(frame_body)
-            // album = strings.to_valid_utf8(album, "", context.temp_allocator)
-            // album, _ = strings.remove_all(album, "\x00", context.temp_allocator)
             result.album = strings.clone(album)
-            // fmt.println(result.album)
         }
         else if frame_id == "TDOR"
         {
             time := parse_text(frame_body)
-            // time := string(frame_body)
-            // time = strings.to_valid_utf8(time, "", context.temp_allocator)
-            // time, _ = strings.remove_all(time, "\x00", context.temp_allocator)
             result.release_time = strings.clone(time)
-            // fmt.println(result.release_time)
         }
         else if result.artist == "" &&
             (frame_id == "TCOM" ||
@@ -294,11 +282,7 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
              frame_id == "TPE1")
         {
             artist := parse_text(frame_body)
-            // artist := string(frame_body)
-            // artist = strings.to_valid_utf8(artist, "", context.temp_allocator)
-            // artist, _ = strings.remove_all(artist, "\x00", context.temp_allocator)
             result.artist = strings.clone(artist)
-            // fmt.println(result.artist)
         }
         else if frame_id == "APIC"
         {
@@ -315,12 +299,14 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
     parse_text :: proc(frame_body: []u8) -> string
     {
         result := ""
+
+        // source: https://stackoverflow.com/a/13373943
         encoding := frame_body[0]
         if encoding == '\x00' // ASCII
         {
             result = string(frame_body[1:])
         }
-        else if encoding == '\x01' // Unicode
+        else if encoding == '\x01' // UTF-16 w/ BOM
         {
             is_little_endian :=
                 frame_body[1] == '\u00ff' && // FF
@@ -335,9 +321,12 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
             {
                 fmt.println("[parse_mp3] big endian detected:", frame_body)
             }
-            // fmt.println("unicode test", result, "\n", frame_body[:])
         }
-        else if encoding == '\x03' // UTF-8
+        else if encoding == '\x02' // UTF-16 Big Endian w/o BOM
+        {
+            fmt.println("[parse_mp3] big endian detected:", frame_body)
+        }
+        else if encoding == '\x03' // UTF-8 w/ Null Terminator? @analyze
         {
             result = string(frame_body[1:])
             result = strings.to_valid_utf8(result, "", context.temp_allocator)
@@ -461,7 +450,7 @@ parse_flac :: proc(file_name: string) -> Music_Info
 jump_queue :: proc(app: ^App, queue_index: int, caller := #caller_location)
 {
     fmt.println(caller)
-    if app.loop == .DELAY do win32.KillTimer(app.win_handle, DELAY_TIMER)
+    win32.KillTimer(app.win_handle, DELAY_TIMER)
     app.playing_index = queue_index
     if app.playing_index == -1 do return // allow -1
 
