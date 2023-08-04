@@ -11,7 +11,7 @@ app: App
 theme: Theme
 
 font_default: win32.HFONT
-FONT_HEIGHT :: 11
+FONT_HEIGHT :: 18
 
 cursor_arrow: win32.HCURSOR
 cursor_hand: win32.HCURSOR

@@ -138,6 +138,8 @@ toggle_pause_music :: proc(app: ^App)
             app.paused = true
         }
     }
+
+    win32.SetTimer(app.win_handle, REFRESH_TIMER, 100, nil)
 }
 
 handle_end_of_music :: proc(app: ^App)
@@ -309,8 +311,8 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
         else if encoding == '\x01' // UTF-16 w/ BOM
         {
             is_little_endian :=
-                frame_body[1] == '\u00ff' && // FF
-                frame_body[2] == '\u00fe' // FE
+                frame_body[1] == 0xff && // FF
+                frame_body[2] == 0xfe // FE
             if is_little_endian
             {
                 str, ok := u8_to_u16(frame_body[3:])
@@ -347,104 +349,93 @@ parse_flac :: proc(file_name: string) -> Music_Info
     if err != os.ERROR_NONE do return result
     defer os.close(handle)
 
-    flac_header := [8]u8{}
+    flac_header := [4]u8{}
     os.read(handle, flac_header[:])
-    if string(flac_header[:4]) != "fLaC"
+    if string(flac_header[:]) != "fLaC"
     {
         return result
     }
 
-    /*
-    major_version := u16(flac_header[4])
-    minor_version := u16(flac_header[5])
-    flags : u16 = flac_header[6];
-    size := u64(0) |
-        flac_header[6] << (7 * 3) |
-        flac_header[7] << (7 * 2) |
-        flac_header[8] << (7 * 1) |
-        flac_header[9]
-
-    char *flac_frames = cast(char *) push_size(&app->temp_arena, size);
-    fread(flac_frames, size, sizeof(char), file);
-
-    char *cursor = flac_frames;
-    while (cast(u64) (cursor - flac_frames) < size)
+    run := true
+    metadata_header := [4]u8{}
+    for run
     {
-        if (strncmp(cursor, "TIT2", 4) == 0)
+        defer if metadata_header[0] & 0b1000_0000 != 0 do run = false
+        os.read(handle, metadata_header[:])
+        metadata_length := u64(metadata_header[3]) |
+                           u64(metadata_header[2]) << 8 |
+                           u64(metadata_header[1]) << 16
+        fmt.println(metadata_length)
+        if metadata_header[0] & 0b0111_1111 != 4
         {
-            cursor += 4;
-            u64 frame_size = cast(u64) 0 |
-                cursor[0] << (8 * 3) |
-                cursor[1] << (8 * 2) |
-                cursor[2] << (8 * 1) |
-                cursor[3];
-            cursor += 6; // skip flags
-            cursor += 1; // after header there's a null that's also counted by the size fsr
-            frame_size -= 1;
+            os.seek(handle, i64(metadata_length), os.SEEK_CUR)
+            continue
+        }
+        metadata_comment := make([]u8, metadata_length)
+        defer delete(metadata_comment)
+        os.read(handle, metadata_comment)
+        fmt.println(args = { '"', string(metadata_comment), '"' }, sep = "")
 
-            char *temp = cast(char *) push_size(&app->temp_arena, sizeof(char) * frame_size);
-            strcpy_len(temp, frame_size, cursor);
-            result.title.data = cast(wchar *) push_size(&app->main_arena, sizeof(wchar) * frame_size);
-            char_to_wchar(result.title.data, temp, frame_size);
-            result.title.length = frame_size;
-            cursor += frame_size;
-        }
-        else if (strncmp(cursor, "TALB", 4) == 0)
+        cursor: u64 = 0
+        metadata_comment_count := 0
+        // reference
         {
-            cursor += 4;
-            u64 frame_size = cast(u64) 0 |
-                cursor[0] << (8 * 3) |
-                cursor[1] << (8 * 2) |
-                cursor[2] << (8 * 1) |
-                cursor[3];
-            cursor += 6; // skip flags
-            cursor += 1; // after header there's a null that's also counted by the size fsr
-            frame_size -= 1;
+            tag := metadata_comment[cursor:]
+            tag_length := u64(tag[0]) |
+                          u64(tag[1]) << 8 |
+                          u64(tag[2]) << 16 |
+                          u64(tag[3]) << 24
+            tag_content := tag[4:][:tag_length]
 
-            char *temp = cast(char *) push_size(&app->temp_arena, sizeof(char) * frame_size);
-            strcpy_len(temp, frame_size, cursor);
-            result.album.data = cast(wchar *) push_size(&app->main_arena, sizeof(wchar) * frame_size);
-            char_to_wchar(result.album.data, temp, frame_size);
-            result.album.length = frame_size;
-            cursor += frame_size;
+            cursor += 4 + tag_length
         }
-        else if (result.artist.length == 0 &&
-                 (strncmp(cursor, "TCOM", 4) == 0 ||
-                  strncmp(cursor, "TPE2", 4) == 0 ||
-                  strncmp(cursor, "TPE1", 4) == 0))
+        // comment count
         {
-            cursor += 4;
-            u64 frame_size = cast(u64) 0 |
-                cursor[0] << (8 * 3) |
-                cursor[1] << (8 * 2) |
-                cursor[2] << (8 * 1) |
-                cursor[3];
-            cursor += 6; // skip flags
-            cursor += 1; // after header there's a null that's also counted by the size fsr
-            frame_size -= 1;
+            tag := metadata_comment[cursor:]
+            tag_length := u64(tag[0]) |
+                          u64(tag[1]) << 8 |
+                          u64(tag[2]) << 16 |
+                          u64(tag[3]) << 24
+            metadata_comment_count = int(tag_length)
 
-            char *temp = cast(char *) push_size(&app->temp_arena, sizeof(char) * frame_size);
-            strcpy_len(temp, frame_size, cursor);
-            result.artist.data = cast(wchar *) push_size(&app->main_arena, sizeof(wchar) * frame_size);
-            char_to_wchar(result.artist.data, temp, frame_size);
-            result.artist.length = frame_size;
-            cursor += frame_size;
+            cursor += 4
         }
-        else
+        for cursor < metadata_length
         {
-            cursor += 4;
-            u64 frame_size = cast(u64) 0 |
-                cursor[0] << (8 * 3) |
-                cursor[1] << (8 * 2) |
-                cursor[2] << (8 * 1) |
-                cursor[3];
-            cursor += 6;
-            // cursor += 1;
-            cursor += frame_size;
+            tag := metadata_comment[cursor:]
+            tag_length := u64(tag[0]) |
+                          u64(tag[1]) << 8 |
+                          u64(tag[2]) << 16 |
+                          u64(tag[3]) << 24
+            tag_content := tag[4:][:tag_length]
+            if string(tag_content[:6]) == "TITLE="
+            {
+                result.title = strings.clone(string(tag_content[6:]))
+            }
+            else if string(tag_content[:6]) == "ALBUM="
+            {
+                result.album = strings.clone(string(tag_content[6:]))
+            }
+            else if result.artist == "" && string(tag_content[:7]) == "ARTIST="
+            {
+                result.artist = strings.clone(string(tag_content[7:]))
+            }
+            else if result.artist == "" && string(tag_content[:12]) == "ALBUMARTIST="
+            {
+                result.artist = strings.clone(string(tag_content[12:]))
+            }
+            else if string(tag_content[:5]) == "DATE="
+            {
+                result.release_time = strings.clone(string(tag_content[5:]))
+            }
+
+            cursor += 4 + tag_length
         }
+
+        break
     }
-    */
-    return result;
+
+    return result
 }
 
 jump_queue :: proc(app: ^App, queue_index: int, caller := #caller_location)

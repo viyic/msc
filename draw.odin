@@ -22,8 +22,8 @@ draw_rect_rect :: #force_inline proc(ctx: ^Ui_Context, rect: Rect)
 
 draw_rect :: proc
 {
-    draw_rect_default
-    draw_rect_rect
+    draw_rect_default,
+    draw_rect_rect,
 }
 
 set_color :: proc(ctx: ^Ui_Context, col: [3]f32)
@@ -39,7 +39,7 @@ set_text_color :: proc(ctx: ^Ui_Context, col: [3]f32)
     r := u8(col.r * 255)
     g := u8(col.g * 255)
     b := u8(col.b * 255)
-    win32.SetTextColor(ctx.hdc, win32.RGB(r, g, b))
+    SetTextColor(ctx.hdc, win32.RGB(r, g, b))
 }
 
 button :: proc(
@@ -216,31 +216,10 @@ set_text_align :: proc(ctx: ^Ui_Context, text_align: u32)
     if ctx.text_align == text_align do return
 
     ctx.text_align = text_align
-    win32.SetTextAlign(ctx.hdc, text_align);
+    SetTextAlign(ctx.hdc, text_align);
 }
 
 draw_text :: proc(ctx: ^Ui_Context, x: int, y: int, str: string)
 {
     win32.TextOutW(ctx.hdc, i32(x), i32(y), win32.utf8_to_wstring(str), i32(len(str)));
 }
-
-/* Text Alignment Options */
-TA_NOUPDATECP :: 0
-TA_UPDATECP   :: 1
-
-TA_LEFT   :: 0
-TA_RIGHT  :: 2
-TA_CENTER :: 6
-
-TA_TOP        :: 0
-TA_BOTTOM     :: 8
-TA_BASELINE   :: 24
-TA_RTLREADING :: 256
-TA_MASK       :: TA_BASELINE + TA_CENTER + TA_UPDATECP + TA_RTLREADING
-
-VTA_BASELINE :: TA_BASELINE
-VTA_LEFT     :: TA_BOTTOM
-VTA_RIGHT    :: TA_TOP
-VTA_CENTER   :: TA_CENTER
-VTA_BOTTOM   :: TA_RIGHT
-VTA_TOP      :: TA_LEFT

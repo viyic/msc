@@ -11,7 +11,7 @@ import ma "vendor:miniaudio"
 app_init :: proc(app: ^App, win_handle: win32.HWND) -> ma.result
 {
     app.win_handle = win_handle
-    app.current_path = strings.clone(`D:\msc`)
+    app.current_path = strings.clone(`E:\msc\Heaven's Emperor - Hatred of Music`)
     update_file_list(app)
     app.volume = 0.5
     app.paused = true
@@ -89,7 +89,7 @@ theme_init_default :: proc(theme: ^Theme)
 {
     theme.background = { 0.1, 0.1, 0.1 }
     theme.text = { 1, 1, 1 }
-    theme.button.normal = { 0.3, 0.3, 0.3 }
+    theme.button.normal = { 0.15, 0.15, 0.15 }
     theme.button.hover = { 0.4, 0.4, 0.4 }
     theme.button.click = { 0.35, 0.35, 0.35 }
 }
@@ -127,23 +127,30 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
     filter_proc :: proc(item: os.File_Info) -> bool
     {
         ext := filepath.ext(item.name)
+
         return item.is_dir ||
-            (ext == ".mp3" ||
+             ext == ".mp3" ||
              ext == ".flac" ||
              ext == ".wav" ||
-             ext == ".ogg")
+             ext == ".ogg"
     }
     file_list_ := slice.filter(app.file_list, filter_proc)
     file_list := slice.concatenate([][]os.File_Info{
         []os.File_Info{
             os.File_Info{
                 name = "..",
-                is_dir = true
+                is_dir = true // @warning: dangerous!
             }
         },
         file_list_
     })
     delete(file_list_)
+
+    sort_proc :: proc(a: os.File_Info, b: os.File_Info) -> bool
+    {
+        return a.is_dir && !b.is_dir
+    }
+    slice.stable_sort_by(file_list, sort_proc)
 
     // @todo: figure out how resizing with scrolled panel work, anchor on top left?
     list_height := item_height * (len(file_list) + 1)
@@ -158,8 +165,10 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
         if at_y + item_height >= list_scroll &&
            at_y < list_scroll + height
         {
-            rect := get_text_size(ctx, cursor.name)
-            if button(ctx, x, at_y - list_scroll, rect.w + padding, rect.h + padding, cursor.name, clip, { text_align = {TA_LEFT, TA_CENTER}, inset = 5})
+            name := strings.concatenate([]string{"+ ", cursor.name}, context.temp_allocator) if cursor.is_dir && cursor.name != ".." else cursor.name
+
+            rect := get_text_size(ctx, name)
+            if button(ctx, x, at_y - list_scroll, rect.w + padding, rect.h + padding, name, clip, { text_align = {TA_LEFT, TA_CENTER}, inset = 5})
             {
                 if !cursor.is_dir
                 {
@@ -233,17 +242,16 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
     set_color(ctx, { 0.2, 0.2, 0.2 })
     draw_rect(ctx, play_bar)
 
-    if app.sound.pDataSource != nil
+    if sound_exists(app)
     {
         ma.sound_get_cursor_in_seconds(&app.sound, &app.cursor)
         ma.sound_get_length_in_seconds(&app.sound, &app.length)
     }
 
     right_of_play_x := 5
-    if app.sound.pDataSource != nil
+    if sound_exists(app)
     {
         // ---------- PLAY BAR
-        // set_color(ctx, { 0.2, 0.2, 0.2 })
         set_color(ctx, theme.button.hover)
         draw_rect(ctx, {
             play_bar.x,
@@ -302,7 +310,7 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
     }
     right_of_play_x += vol_bar.w + 5
 
-    if app.sound.pDataSource != nil
+    if sound_exists(app)
     {
         set_text_align(ctx, TA_LEFT)
         cursor_min := int(app.cursor / 60)
@@ -317,18 +325,9 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
 
     // ---------- LOOP
     loop_text := "loop: x"
-    if (app.loop == .SINGLE)
-    {
-        loop_text = "loop: s"
-    }
-    else if (app.loop == .PLAYLIST)
-    {
-        loop_text = "loop: p"
-    }
-    else if (app.loop == .DELAY)
-    {
-        loop_text = "loop: d"
-    }
+    if (app.loop == .SINGLE)        do loop_text = "loop: s"
+    else if (app.loop == .PLAYLIST) do loop_text = "loop: p"
+    else if (app.loop == .DELAY)    do loop_text = "loop: d"
 
     padding := 10
     loop_size := get_text_size(ctx, loop_text)
