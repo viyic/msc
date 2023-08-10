@@ -70,6 +70,15 @@ config_init :: proc(app: ^App)
                 } else {
                     fmt.eprintln("[msc.cfg] invalid 'volume' value in line ", line_number, ": ", words[2], "\nexample: volume = 50")
                 }
+            case "font_name":
+                app.font_name = strings.clone(words[2])
+            case "font_height":
+                value, ok := strconv.parse_int(words[2])
+                if ok {
+                    app.font_height = value
+                } else {
+                    fmt.eprintln("[msc.cfg] invalid 'font_height' value in line ", line_number, ": ", words[2], "\nexample: font_height = 11")
+                }
             case "delay_time":
                 value, ok := strconv.parse_f32(words[2])
                 if ok {
@@ -83,7 +92,7 @@ config_init :: proc(app: ^App)
     }
 }
 
-app_run :: proc(app: ^App, ctx: ^Ui_Context)
+app_run :: proc(app: ^App, ctx: ^Platform_Ui_Context)
 {
     app.bottom.rect = { 0, ctx.height - 55, ctx.width, 55 }
 
@@ -147,14 +156,14 @@ theme_init_default :: proc(theme: ^Theme)
     theme.button.click = { 0.35, 0.35, 0.35 }
 }
 
-ui_panel_left :: proc(app: ^App, ctx: ^Ui_Context)
+ui_panel_left :: proc(app: ^App, ctx: ^Platform_Ui_Context)
 {
     // ---------- QUEUE
     ui_music_list(app, ctx)
     // ui_music_grid(app, ctx)
 }
 
-ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
+ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context)
 {
     width := ctx.width - ctx.width / 3
     height := ctx.height - 55
@@ -212,6 +221,10 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
 
     new_path := app.current_path
 
+    button_config := button_config_default
+    button_config.text_align = { TA_LEFT, TA_CENTER }
+    button_config.double_click = true
+
     set_text_align(ctx, TA_CENTER)
     for cursor in file_list
     {
@@ -220,8 +233,8 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
         {
             name := strings.concatenate([]string{": ", cursor.name}, context.temp_allocator) if cursor.is_dir && cursor.name != ".." else cursor.name
 
-            rect := get_text_size(ctx, name)
-            if button(ctx, x, at_y - list_scroll, rect.w + padding, rect.h + padding, name, clip, { text_align = {TA_LEFT, TA_CENTER}, inset = 5})
+            rect := platform_get_text_size(ctx, name)
+            if button(ctx, x, at_y - list_scroll, rect.w + padding, rect.h + padding, name, clip, button_config)
             {
                 if !cursor.is_dir
                 {
@@ -269,7 +282,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
     draw_rect(ctx, Rect{app.left.x, y1(app.left) - margin, app.left.w, ctx.height - (y1(app.left) - margin)})
 }
 
-ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
+ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context)
 {
     playing := app.paused ? "|>" : "||"
 
@@ -370,19 +383,19 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
         length_min := int(app.length / 60)
         length_sec := int(app.length) % 60
         str := fmt.tprintf("%d:%02d/%d:%02d", cursor_min, cursor_sec, length_min, length_sec)
-        rect := get_text_size(ctx, str)
+        rect := platform_get_text_size(ctx, str)
         label(ctx, button_play.x + button_play.w + right_of_play_x, button_play.y + (button_play.h - app.font_height) / 2, str)
         right_of_play_x += rect.w + 5
     }
 
     // ---------- LOOP
     loop_text := "loop: x"
-    if (app.loop == .SINGLE)        do loop_text = "loop: s"
-    else if (app.loop == .PLAYLIST) do loop_text = "loop: p"
-    else if (app.loop == .DELAY)    do loop_text = "loop: d"
+    if app.loop == .SINGLE        do loop_text = "loop: s"
+    else if app.loop == .PLAYLIST do loop_text = "loop: p"
+    else if app.loop == .DELAY    do loop_text = "loop: d"
 
     padding := 10
-    loop_size := get_text_size(ctx, loop_text)
+    loop_size := platform_get_text_size(ctx, loop_text)
     loop_size.w += padding
     loop_size.h += padding
 
@@ -413,7 +426,7 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
     // draw_ellipse(ctx, button_play.x, button_play.y, button_play.x + button_play.w, button_play.y + button_play.h)
 }
 
-ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
+ui_panel_right :: proc(app: ^App, ctx: ^Platform_Ui_Context)
 {
     width := app.right.w
     x := app.right.x
@@ -449,6 +462,10 @@ ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
     at_y += title_height + margin
 
     // ---------- QUEUE
+    button_config := button_config_default
+    button_config.text_align = { TA_LEFT, TA_CENTER }
+    button_config.double_click = true
+
     list_width := width - 3 * margin
     clip := Rect{x + margin, at_y, list_width, app.right.h - at_y}
     for music_info_index, queue_index in app.queue
@@ -461,10 +478,9 @@ ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
             len(music_info.artist) > 0 ? " : " : "",
             music_info.artist)
 
-        if button(ctx, x + margin, at_y, list_width, item_height, str, clip, { text_align = {TA_LEFT, TA_CENTER}, inset = 5 })
+        if button(ctx, x + margin, at_y, list_width, item_height, str, clip, button_config)
         {
             jump_queue(app, queue_index)
-            // request_redraw(ctx, { app.right.x, app.right.y, app.right.width, app.right.height })
         }
 
         // i32 length_min = cast(i32) (cursor.length / 60)

@@ -3,7 +3,7 @@ package msc
 import "core:fmt"
 import win32 "core:sys/windows"
 
-draw_rect_default :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int)
+draw_rect_default :: proc(ctx: ^Platform_Ui_Context, x: int, y: int, w: int, h: int)
 {
     using win32
     rect := win32.RECT{
@@ -15,7 +15,7 @@ draw_rect_default :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int)
     FillRect(ctx.hdc, &rect, HBRUSH(GetStockObject(DC_BRUSH)))
 }
 
-draw_rect_rect :: #force_inline proc(ctx: ^Ui_Context, rect: Rect)
+draw_rect_rect :: #force_inline proc(ctx: ^Platform_Ui_Context, rect: Rect)
 {
     draw_rect_default(ctx, rect.x, rect.y, rect.w, rect.h)
 }
@@ -26,7 +26,7 @@ draw_rect :: proc
     draw_rect_rect,
 }
 
-set_color :: proc(ctx: ^Ui_Context, col: [3]f32)
+set_color :: proc(ctx: ^Platform_Ui_Context, col: [3]f32)
 {
     r := u8(col.r * 255)
     g := u8(col.g * 255)
@@ -34,7 +34,7 @@ set_color :: proc(ctx: ^Ui_Context, col: [3]f32)
     win32.SetDCBrushColor(ctx.hdc, win32.RGB(r, g, b))
 }
 
-set_text_color :: proc(ctx: ^Ui_Context, col: [3]f32)
+set_text_color :: proc(ctx: ^Platform_Ui_Context, col: [3]f32)
 {
     r := u8(col.r * 255)
     g := u8(col.g * 255)
@@ -43,14 +43,11 @@ set_text_color :: proc(ctx: ^Ui_Context, col: [3]f32)
 }
 
 button :: proc(
-    ctx: ^Ui_Context,
+    ctx: ^Platform_Ui_Context,
     x, y, w, h: int,
     str: string,
     clip := Rect{},
-    style := Button_Style{
-        text_align = TA_CENTER,
-        inset = 5
-    }
+    config := button_config_default
 ) -> bool
 {
     result := false
@@ -114,16 +111,13 @@ button :: proc(
 
         draw_rect(ctx, rect)
         set_text_color(ctx, theme.text)
-        set_text_align(ctx, style.text_align.x)
+        set_text_align(ctx, config.text_align.x)
         x_ := x
-        if style.text_align.x == TA_CENTER do x_ += w / 2
-        else if style.text_align.x == TA_RIGHT do x_ += w - style.inset.x
-        else do x_ += style.inset.x / 2
+        if config.text_align.x == TA_CENTER do x_ += w / 2
+        else if config.text_align.x == TA_RIGHT do x_ += w - config.inset.x
+        else do x_ += config.inset.x / 2
         label(ctx, x_, y + (h - app.font_height) / 2, str)
         set_text_color(ctx, 0)
-
-        // win32.DeleteObject(HGDIOBJ(region_handle))
-        // win32.SelectClipRgn(ctx.hdc, nil)
     }
     else
     {
@@ -131,17 +125,29 @@ button :: proc(
            (between_equal_left(x - hover_area, ctx.cx, x + w + hover_area) &&
             between_equal_left(y - hover_area, ctx.cy, y + h + hover_area))
         {
-            // refresh_draw()
-            // request_redraw(ctx, { x - hover_area, y - hover_area, w + hover_area, h + hover_area })
             ctx.redraw = true
-            // win32.InvalidateRect(ctx.win_handle, nil, win32.TRUE)
         }
     }
 
-    return result && ctx.msg == .MOUSE_LEFT_RELEASED
+    clicked := false
+    if config.double_click
+    {
+        if ctx.msg == .MOUSE_DOUBLE_CLICK &&
+           between_equal_left(x, app.last_click_cx, x + w) &&
+           between_equal_left(y, app.last_click_cy, y + h)
+        {
+            clicked = true
+        }
+    }
+    else if ctx.msg == .MOUSE_LEFT_RELEASED
+    {
+        clicked = true
+    }
+
+    return result && clicked
 }
 
-label :: proc(ctx: ^Ui_Context, x: int, y: int, text: string)
+label :: proc(ctx: ^Platform_Ui_Context, x: int, y: int, text: string)
 {
     if ctx.msg != .PAINT
     {
@@ -152,7 +158,7 @@ label :: proc(ctx: ^Ui_Context, x: int, y: int, text: string)
 }
 
 /*
-slider :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int, str: string, clip := Rect{}, loc := #caller_location) -> f32
+slider :: proc(ctx: ^Platform_Ui_Context, x: int, y: int, w: int, h: int, str: string, clip := Rect{}, loc := #caller_location) -> f32
 {
     result := 0.0
     hover := false
@@ -211,7 +217,7 @@ slider :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int, str: string, cl
 }
 */
 
-set_text_align :: proc(ctx: ^Ui_Context, text_align: u32)
+set_text_align :: proc(ctx: ^Platform_Ui_Context, text_align: u32)
 {
     if ctx.text_align == text_align do return
 
@@ -219,7 +225,10 @@ set_text_align :: proc(ctx: ^Ui_Context, text_align: u32)
     SetTextAlign(ctx.hdc, text_align);
 }
 
-draw_text :: proc(ctx: ^Ui_Context, x: int, y: int, str: string)
+draw_text :: proc(ctx: ^Platform_Ui_Context, x: int, y: int, str: string)
 {
+    // @warning: utf8_to_wstring might crash because there's no check for len(res) > 0
+    // D:/Odin/core/sys/windows/util.odin(57:15) Index 0 is out of range 0..<0
+    if len(str) <= 0 do return
     win32.TextOutW(ctx.hdc, i32(x), i32(y), win32.utf8_to_wstring(str), i32(len(str)));
 }

@@ -1,6 +1,5 @@
 package msc
 
-import win32 "core:sys/windows"
 import ma "vendor:miniaudio"
 import "core:runtime"
 import "core:os"
@@ -8,7 +7,7 @@ import "core:os"
 App :: struct
 {
     executable_path: string,
-    win_handle: win32.HWND,
+    win_handle: platform_window_handle,
 
     font_name: string,
     font_height: int,
@@ -42,24 +41,6 @@ App :: struct
     last_click_time: u64,
 
     last_cursor: Cursor,
-}
-
-Ui_Context :: struct
-{
-    cx, cy: int,
-    width, height: int,
-    scroll: f32,
-    msg: Ui_Message,
-    text_align: u32,
-
-    redraw: b32,
-    redraw_rect: win32.RECT,
-    next_cursor: Cursor,
-
-    hold: runtime.Source_Code_Location, // @analyze: add z and compare the z?
-
-    hdc: win32.HDC,
-    win_handle: win32.HWND,
 }
 
 Ui_Message :: enum
@@ -128,16 +109,15 @@ Music_Info :: struct
     full_path: string,
 }
 
-Button_Style :: struct
+Button_Config :: struct
 {
     text_align: [2]u32,
     inset: [2]int,
+    double_click: bool,
 }
 
-button_style_default :: proc() -> Button_Style
-{
-    return Button_Style{
-        text_align = {TA_CENTER, TA_CENTER},
-        inset = 5,
-    }
+button_config_default :: Button_Config{
+    text_align = TA_CENTER,
+    inset = 5,
+    double_click = false,
 }

@@ -2,7 +2,6 @@ package msc
 
 import "core:fmt"
 import "core:runtime"
-import "core:strings"
 import "core:mem"
 import "core:os"
 import "core:strconv"
@@ -13,16 +12,14 @@ import ma "vendor:miniaudio"
 app: App
 theme: Theme
 
-platform_window_handle :: win32.HWND
-
 START_PATH :: `E:\msc\Heaven's Emperor - Hatred of Music`
 FONT_DEFAULT_NAME   :: "ProggySquareTT"
 FONT_DEFAULT_HEIGHT :: 11
 
-font_default: win32.HFONT
+font_default: platform_font_handle
 
-cursor_arrow: win32.HCURSOR
-cursor_hand: win32.HCURSOR
+cursor_arrow: platform_cursor_handle
+cursor_hand: platform_cursor_handle
 
 speed_steps := [?]f32{ 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5, 1.6, 1.7, 1.75, 1.8, 1.9, 2 }
 
@@ -30,92 +27,6 @@ when USE_TRACKING_ALLOCATOR
 {
     track: mem.Tracking_Allocator
     track_allocator: mem.Allocator
-}
-
-platform_miniaudio_sound_init :: proc(app: ^App, path: string) -> bool
-{
-    return ma.sound_init_from_file_w(&app.engine, win32.utf8_to_wstring(path), u32(ma.sound_flags.STREAM | ma.sound_flags.NO_SPATIALIZATION), nil, nil, &app.sound) == .SUCCESS
-}
-
-platform_window_set_text :: proc(app: ^App, text: string)
-{
-    text_ := win32.utf8_to_wstring(text, context.allocator)
-    defer free(text_)
-    win32.SetWindowTextW(app.win_handle, text_)
-}
-
-platform_get_shift_key :: proc() -> bool
-{
-    return win32.GetKeyState(win32.VK_SHIFT) >= 0
-}
-
-platform_redraw :: proc(app: ^App)
-{
-    win32.InvalidateRect(app.win_handle, nil, win32.TRUE)
-}
-
-platform_get_executable_path :: proc() -> (string, bool)
-{
-    executable_path := make([]u16, win32.MAX_PATH_WIDE)
-    defer delete(executable_path)
-    win32.GetModuleFileNameW(nil, &executable_path[0], u32(len(executable_path)))
-    result, err := win32.utf16_to_utf8(executable_path[:], context.allocator)
-
-    return result, err == .None
-}
-
-platform_timer_start :: proc(app: ^App, timer: Timer, time: u32)
-{
-    win32.SetTimer(app.win_handle, uintptr(timer), time, nil)
-}
-
-platform_timer_stop :: proc(app: ^App, timer: Timer)
-{
-    win32.KillTimer(app.win_handle, uintptr(timer))
-}
-
-
-platform_window_create :: proc() -> win32.HWND
-{
-    using win32
-
-    instance := HINSTANCE(GetModuleHandleW(nil))
-    class_name := win32.L("msc") // issue #2007
-
-    win_class: WNDCLASSEXW
-    win_class.cbSize = size_of(win_class)
-    win_class.lpfnWndProc = win_proc
-    win_class.hInstance = instance
-    win_class.lpszClassName = class_name
-    win_class.style = CS_HREDRAW | CS_VREDRAW
-    win_class.hIcon = HICON(LoadImageW(instance, win32.L("MSC_ICON"), IMAGE_ICON, LR_DEFAULTSIZE, LR_DEFAULTSIZE, 0))
-    win_class.hIconSm = HICON(LoadImageW(instance, win32.L("MSC_ICON"), IMAGE_ICON, LR_DEFAULTSIZE, LR_DEFAULTSIZE, 0))
-    if !b32(RegisterClassExW(&win_class)) do return nil
-
-    win_handle := CreateWindowExW(
-        0,
-        class_name,
-        win32.L("msc"),
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        750, 550,
-        nil,
-        nil,
-        instance,
-        nil,
-    )
-
-    if win_handle != nil {
-        // windows dark titlebar
-        DWMWA_USE_IMMERSIVE_DARK_MODE :: 20
-        dark_mode: BOOL = TRUE
-        DwmSetWindowAttribute(win_handle, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_mode, size_of(dark_mode))
-
-        cursor_arrow = LoadCursorA(nil, IDC_ARROW) // LoadCursorW?
-        cursor_hand = LoadCursorA(nil, IDC_HAND)
-    }
-
-    return win_handle
 }
 
 main :: proc()
@@ -166,7 +77,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
 
     result: LRESULT = 0
 
-    ctx := ui_context_create(win_handle)
+    ctx := platform_ui_context_create(win_handle)
 
     switch msg
     {
@@ -240,7 +151,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
         case WM_CHAR:
             switch wparam {
                 case 'o':
-                    path, ok := win32_open_file_dialog("Music Files (.mp3, .flac, .wav, .ogg)\u0000*.mp3;*.flac;*.wav;*.ogg\u0000")
+                    path, ok := platform_open_file_dialog("Music Files (.mp3, .flac, .wav, .ogg)\u0000*.mp3;*.flac;*.wav;*.ogg\u0000")
                     if ok
                     {
                         // reset_queue(&app)
@@ -345,7 +256,10 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
         case WM_LBUTTONDOWN:
             if wparam & MK_LBUTTON != 0
             {
-                if !app.mouse_down
+                prev_mouse_down := app.mouse_down
+                app.mouse_down = true
+
+                if !prev_mouse_down
                 {
                     time: FILETIME
                     GetSystemTimePreciseAsFileTime(&time)
@@ -353,7 +267,6 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
 
                     if time64 - app.last_click_time < 3000000
                     {
-                        // printf("%lld\n", time64 - app.last_click_time)
                         ctx.msg = .MOUSE_DOUBLE_CLICK
                         app_run(&app, &ctx)
                     }
@@ -363,7 +276,6 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                     app.last_click_time = time64
                 }
 
-                app.mouse_down = true
                 InvalidateRect(win_handle, nil, TRUE)
             }
 
@@ -425,32 +337,6 @@ font_init :: proc(app: ^App)
                                DEFAULT_QUALITY,
                                DEFAULT_PITCH | FF_DONTCARE,
                                win32.utf8_to_wstring(app.font_name, context.allocator))
-}
-
-ui_context_create :: proc(win_handle: win32.HWND) -> Ui_Context
-{
-    using win32
-
-    ctx: Ui_Context
-    ctx.win_handle = win_handle
-    ctx.text_align = TA_CENTER
-
-    win: RECT
-    if GetClientRect(win_handle, &win)
-    {
-        ctx.width = int(win.right - win.left)
-        ctx.height = int(win.bottom - win.top)
-    }
-
-    cursor: POINT
-    if GetCursorPos(&cursor)
-    {
-        ScreenToClient(win_handle, &cursor)
-        ctx.cx = int(cursor.x)
-        ctx.cy = int(cursor.y)
-    }
-
-    return ctx
 }
 
 /*
