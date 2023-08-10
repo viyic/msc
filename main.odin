@@ -4,20 +4,27 @@ import "core:fmt"
 import "core:runtime"
 import "core:strings"
 import "core:mem"
+import "core:os"
+import "core:strconv"
+import "core:path/filepath"
 import win32 "core:sys/windows"
 import ma "vendor:miniaudio"
 
 app: App
 theme: Theme
 
+platform_window_handle :: win32.HWND
+
+START_PATH :: `E:\msc\Heaven's Emperor - Hatred of Music`
+FONT_DEFAULT_NAME   :: "ProggySquareTT"
+FONT_DEFAULT_HEIGHT :: 11
+
 font_default: win32.HFONT
-FONT_HEIGHT :: 18
 
 cursor_arrow: win32.HCURSOR
 cursor_hand: win32.HCURSOR
 
 speed_steps := [?]f32{ 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5, 1.6, 1.7, 1.75, 1.8, 1.9, 2 }
-// speed_steps := [?]f32{ 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2 }
 
 when USE_TRACKING_ALLOCATOR
 {
@@ -25,16 +32,52 @@ when USE_TRACKING_ALLOCATOR
     track_allocator: mem.Allocator
 }
 
-main :: proc()
+platform_miniaudio_sound_init :: proc(app: ^App, path: string) -> bool
+{
+    return ma.sound_init_from_file_w(&app.engine, win32.utf8_to_wstring(path), u32(ma.sound_flags.STREAM | ma.sound_flags.NO_SPATIALIZATION), nil, nil, &app.sound) == .SUCCESS
+}
+
+platform_window_set_text :: proc(app: ^App, text: string)
+{
+    text_ := win32.utf8_to_wstring(text, context.allocator)
+    defer free(text_)
+    win32.SetWindowTextW(app.win_handle, text_)
+}
+
+platform_get_shift_key :: proc() -> bool
+{
+    return win32.GetKeyState(win32.VK_SHIFT) >= 0
+}
+
+platform_redraw :: proc(app: ^App)
+{
+    win32.InvalidateRect(app.win_handle, nil, win32.TRUE)
+}
+
+platform_get_executable_path :: proc() -> (string, bool)
+{
+    executable_path := make([]u16, win32.MAX_PATH_WIDE)
+    defer delete(executable_path)
+    win32.GetModuleFileNameW(nil, &executable_path[0], u32(len(executable_path)))
+    result, err := win32.utf16_to_utf8(executable_path[:], context.allocator)
+
+    return result, err == .None
+}
+
+platform_timer_start :: proc(app: ^App, timer: Timer, time: u32)
+{
+    win32.SetTimer(app.win_handle, uintptr(timer), time, nil)
+}
+
+platform_timer_stop :: proc(app: ^App, timer: Timer)
+{
+    win32.KillTimer(app.win_handle, uintptr(timer))
+}
+
+
+platform_window_create :: proc() -> win32.HWND
 {
     using win32
-
-    when USE_TRACKING_ALLOCATOR
-    {
-        mem.tracking_allocator_init(&track, context.allocator)
-        track_allocator = mem.tracking_allocator(&track)
-        context.allocator = track_allocator
-    }
 
     instance := HINSTANCE(GetModuleHandleW(nil))
     class_name := win32.L("msc") // issue #2007
@@ -47,10 +90,7 @@ main :: proc()
     win_class.style = CS_HREDRAW | CS_VREDRAW
     win_class.hIcon = HICON(LoadImageW(instance, win32.L("MSC_ICON"), IMAGE_ICON, LR_DEFAULTSIZE, LR_DEFAULTSIZE, 0))
     win_class.hIconSm = HICON(LoadImageW(instance, win32.L("MSC_ICON"), IMAGE_ICON, LR_DEFAULTSIZE, LR_DEFAULTSIZE, 0))
-    if !b32(RegisterClassExW(&win_class))
-    {
-        return
-    }
+    if !b32(RegisterClassExW(&win_class)) do return nil
 
     win_handle := CreateWindowExW(
         0,
@@ -65,27 +105,41 @@ main :: proc()
         nil,
     )
 
-    DWMWA_USE_IMMERSIVE_DARK_MODE :: 20
-    dark_mode: BOOL = TRUE
-    DwmSetWindowAttribute(win_handle, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_mode, size_of(dark_mode))
+    if win_handle != nil {
+        // windows dark titlebar
+        DWMWA_USE_IMMERSIVE_DARK_MODE :: 20
+        dark_mode: BOOL = TRUE
+        DwmSetWindowAttribute(win_handle, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_mode, size_of(dark_mode))
 
-    if win_handle == nil
-    {
-        return
+        cursor_arrow = LoadCursorA(nil, IDC_ARROW) // LoadCursorW?
+        cursor_hand = LoadCursorA(nil, IDC_HAND)
     }
 
-    font_init()
+    return win_handle
+}
 
-    if result := app_init(&app, win_handle); result != ma.result.SUCCESS
+main :: proc()
+{
+    using win32
+
+    when USE_TRACKING_ALLOCATOR
     {
-        return // result
+        mem.tracking_allocator_init(&track, context.allocator)
+        track_allocator = mem.tracking_allocator(&track)
+        context.allocator = track_allocator
     }
+
+    win_handle := platform_window_create()
+    if win_handle == nil do return
+
+    if !app_init(&app, win_handle) do return
+
+    config_init(&app)
+    font_init(&app)
 
     ShowWindow(win_handle, SW_SHOWNORMAL)
     UpdateWindow(win_handle)
 
-    cursor_arrow = LoadCursorA(nil, IDC_ARROW) // LoadCursorW?
-    cursor_hand = LoadCursorA(nil, IDC_HAND)
     when USE_TRACKING_ALLOCATOR
     {
         SetTimer(win_handle, TRACK_TIMER, 1000, nil)
@@ -124,7 +178,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
 
         case WM_SETCURSOR:
             cursor := Cursor(wparam)
-            // fmt.println(cursor)
+
             if cursor == .ARROW
             {
                 SetCursor(cursor_arrow)
@@ -141,7 +195,8 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
             }
 
         case WM_TIMER:
-            if wparam == REFRESH_TIMER
+            timer := Timer(wparam)
+            if timer == .REFRESH
             {
                 if (ma.sound_is_playing(&app.sound))
                 {
@@ -151,10 +206,10 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                 }
                 else
                 {
-                    KillTimer(app.win_handle, REFRESH_TIMER)
+                    KillTimer(app.win_handle, uintptr(timer))
                 }
             }
-            else if wparam == DELAY_TIMER
+            else if timer == .DELAY
             {
                 if sound_exists(&app)
                 {
@@ -168,10 +223,10 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                         jump_queue(&app, app.playing_index)
                     }
                 }
-                KillTimer(app.win_handle, DELAY_TIMER)
+                KillTimer(app.win_handle, uintptr(timer))
                 fmt.println("DELAY_TIMER end")
             }
-            else if wparam == TRACK_TIMER
+            else if timer == .TRACK
             {
                 when USE_TRACKING_ALLOCATOR
                 {
@@ -183,78 +238,35 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
             }
 
         case WM_CHAR:
-            if (wparam == 'o')
-            {
-                path, ok := win32_open_file_dialog("Music Files (.mp3, .flac, .wav, .ogg)\u0000*.mp3;*.flac;*.wav;*.ogg\u0000")
-                if ok
-                {
-                    // reset_queue(&app)
-                    music_info, ok := get_music_info_from_path(path)
-                    if ok do add_music_to_queue(&app, music_info)
-                    else do delete(path)
-                    fmt.println("playing \"", path, "\"")
-                    // print_music_title(filename)
-                    InvalidateRect(win_handle, nil, TRUE)
-                }
+            switch wparam {
+                case 'o':
+                    path, ok := win32_open_file_dialog("Music Files (.mp3, .flac, .wav, .ogg)\u0000*.mp3;*.flac;*.wav;*.ogg\u0000")
+                    if ok
+                    {
+                        // reset_queue(&app)
+                        music_info, ok := get_music_info_from_path(path)
+                        if ok do add_music_to_queue(&app, music_info)
+                        else do delete(path)
+                        fmt.println("playing \"", path, "\"")
+                        // print_music_title(filename)
+                    }
+                case 'p':
+                    // toggle_pause_music(&app)
+                case ',':
+                    // jump_queue(&app, app.playing_index - 1)
+                case '.':
+                    // jump_queue(&app, app.playing_index + 1)
+                case 'q':
+                    change_speed(&app, -1)
+                case 'w':
+                    change_speed(&app, 1)
+                case 'b':
+                    app.left.scroll = min(app.left.scroll + 0.1, 1)
+                case 'v':
+                    app.left.scroll = max(app.left.scroll - 0.1, 0)
             }
-            /*
-            else if (wparam == 'O')
-            {
-                wchar filename[MAX_PATH]
-                if (open_file_dialog(filename, MAX_PATH, L"\0"))
-                {
-                    add_music_to_queue(&app, filename)
-                    // print_music_title(filename)
-                    InvalidateRect(win_handle, nil, TRUE)
-                }
-            }
-            else */
-            if wparam == 'p'
-            {
-                // toggle_pause_music(&app)
-                InvalidateRect(win_handle, nil, TRUE)
-            }
-            else if wparam == ','
-            {
-                // jump_queue(&app, app.playing_index - 1)
-                InvalidateRect(win_handle, nil, TRUE)
-            }
-            else if wparam == '.'
-            {
-                // jump_queue(&app, app.playing_index + 1)
-                InvalidateRect(win_handle, nil, TRUE)
-            }
-            else if wparam == 'q'
-            {
-                change_speed(&app, -1)
-                // app.speed = max(0.5, app.speed - 0.1)
-                // if app.sound.pDataSource != nil
-                // {
-                //     ma.sound_set_pitch(&app.sound, app.speed)
-                // }
-                InvalidateRect(win_handle, nil, TRUE)
-            }
-            else if (wparam == 'w')
-            {
-                change_speed(&app, 1)
-                // app.speed = min(2.0, app.speed + 0.1)
-                // if app.sound.pDataSource != nil
-                // {
-                //     ma.sound_set_pitch(&app.sound, app.speed)
-                // }
-                InvalidateRect(win_handle, nil, TRUE)
-            }
-            else if (wparam == 'b')
-            {
-                app.left.scroll = min(app.left.scroll + 0.1, 1)
-                InvalidateRect(win_handle, nil, TRUE)
-            }
-            else if (wparam == 'v')
-            {
-                app.left.scroll = max(app.left.scroll - 0.1, 0)
-                InvalidateRect(win_handle, nil, TRUE)
-            }
-            // fmt.println(app.left.scroll)
+
+            InvalidateRect(win_handle, nil, TRUE)
 
         case WM_KEYDOWN, WM_SYSKEYDOWN:
             if wparam == VK_ESCAPE
@@ -315,7 +327,6 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
             if app.last_cursor != ctx.next_cursor
             {
                 app.last_cursor = ctx.next_cursor
-                // fmt.println("cursor 1")
                 PostMessageW(win_handle, WM_SETCURSOR, WPARAM(ctx.next_cursor), 0)
             }
 
@@ -367,7 +378,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
             InvalidateRect(win_handle, nil, TRUE)
 
         case WM_MOUSEWHEEL:
-            ctx.scroll = f32(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA
+            ctx.scroll = f32(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 4
             ctx.msg = .MOUSE_WHEEL
             app_run(&app, &ctx)
 
@@ -400,11 +411,11 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
     return result
 }
 
-font_init :: proc()
+font_init :: proc(app: ^App)
 {
     using win32
 
-    font_default = CreateFontW(FONT_HEIGHT, 0,
+    font_default = CreateFontW(i32(app.font_height), 0,
                                0, 0,
                                FW_DONTCARE,
                                0, 0, 0,
@@ -413,7 +424,7 @@ font_init :: proc()
                                CLIP_DEFAULT_PRECIS,
                                DEFAULT_QUALITY,
                                DEFAULT_PITCH | FF_DONTCARE,
-                               win32.L("ProggySquareTT"))
+                               win32.utf8_to_wstring(app.font_name, context.allocator))
 }
 
 ui_context_create :: proc(win_handle: win32.HWND) -> Ui_Context
@@ -423,7 +434,6 @@ ui_context_create :: proc(win_handle: win32.HWND) -> Ui_Context
     ctx: Ui_Context
     ctx.win_handle = win_handle
     ctx.text_align = TA_CENTER
-    // ctx.next_cursor = .ARROW
 
     win: RECT
     if GetClientRect(win_handle, &win)
@@ -442,6 +452,7 @@ ui_context_create :: proc(win_handle: win32.HWND) -> Ui_Context
 
     return ctx
 }
+
 /*
 ideas:
 - app_run() once in non-WM_PAINT event and queue required draws, then draw during WM_PAINT

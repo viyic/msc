@@ -7,7 +7,12 @@ import "core:os"
 
 App :: struct
 {
+    executable_path: string,
     win_handle: win32.HWND,
+
+    font_name: string,
+    font_height: int,
+
     mouse_down: b32,
 
     speed: f32,
@@ -88,9 +93,12 @@ Cursor :: enum
 
 USE_TRACKING_ALLOCATOR :: false
 
-REFRESH_TIMER :: 1
-TRACK_TIMER :: 2
-DELAY_TIMER :: 3
+Timer :: enum
+{
+    REFRESH = 1,
+    DELAY,
+    TRACK,
+}
 
 Loop_State :: enum
 {
@@ -102,7 +110,7 @@ Loop_State :: enum
 
 Rect :: struct
 {
-    x, y, w, h: int
+    x, y, w, h: int,
 }
 
 Panel :: struct

@@ -119,7 +119,7 @@ button :: proc(
         if style.text_align.x == TA_CENTER do x_ += w / 2
         else if style.text_align.x == TA_RIGHT do x_ += w - style.inset.x
         else do x_ += style.inset.x / 2
-        label(ctx, x_, y + (h - FONT_HEIGHT) / 2, str)
+        label(ctx, x_, y + (h - app.font_height) / 2, str)
         set_text_color(ctx, 0)
 
         // win32.DeleteObject(HGDIOBJ(region_handle))
@@ -191,7 +191,7 @@ slider :: proc(ctx: ^Ui_Context, x: int, y: int, w: int, h: int, str: string, cl
         }
         draw_rect(ctx, x, y, w, h)
         set_text_color(ctx, theme.text)
-        label(ctx, x_, y + (h - FONT_HEIGHT) / 2, str)
+        label(ctx, x_, y + (h - app.font_height) / 2, str)
         set_text_color(ctx, { 0, 0, 0 })
     }
     else

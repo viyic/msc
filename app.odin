@@ -5,15 +5,23 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:path/filepath"
-import win32 "core:sys/windows"
+import "core:strconv"
 import ma "vendor:miniaudio"
 
-app_init :: proc(app: ^App, win_handle: win32.HWND) -> ma.result
+app_init :: proc(app: ^App, win_handle: platform_window_handle) -> bool
 {
+    ok: bool
+    app.executable_path, ok = platform_get_executable_path()
+    if !ok do return false
+
     app.win_handle = win_handle
-    app.current_path = strings.clone(`E:\msc\Heaven's Emperor - Hatred of Music`)
+
+    app.font_name = FONT_DEFAULT_NAME
+    app.font_height = FONT_DEFAULT_HEIGHT
+
+    change_current_path(app, START_PATH)
     update_file_list(app)
-    app.volume = 0.5
+    change_volume(app, 0.5)
     app.paused = true
     app.speed = 1
     app.playing_index = -1
@@ -23,15 +31,56 @@ app_init :: proc(app: ^App, win_handle: win32.HWND) -> ma.result
     if result != ma.result.SUCCESS
     {
         fmt.eprintln("engine init failed")
-        return result
+        return false
     }
-    ma.engine_set_volume(&app.engine, app.volume)
     // @hack: too lazy to make config
     app.engine.pDevice.onData = ma_engine_data_callback
 
     theme_init_default(&theme)
 
-    return result
+    return true
+}
+
+config_init :: proc(app: ^App)
+{
+    dir := filepath.dir(app.executable_path, context.temp_allocator)
+
+    config, ok := os.read_entire_file(filepath.join([]string{dir, "msc.cfg"}))
+    defer delete(config)
+
+    if !ok do return
+
+    lines := strings.split_lines(string(config[:]))
+    defer delete(lines)
+    for line, line_number in lines {
+        words := strings.split_n(line, " ", 3)
+        if len(words) != 3 || words[0] == "#" || words[1] != "=" do continue
+
+        switch words[0] {
+            case "start_path":
+                if os.is_dir(words[2]) {
+                    change_current_path(app, words[2])
+                } else {
+                    fmt.eprintln("[msc.cfg] invalid path for 'start_path' value in line ", line_number, ": ", words[2], "\nexample: start_path = E:\\music")
+                }
+            case "volume":
+                value, ok := strconv.parse_int(words[2])
+                if ok {
+                    change_volume(app, f32(value) / 100)
+                } else {
+                    fmt.eprintln("[msc.cfg] invalid 'volume' value in line ", line_number, ": ", words[2], "\nexample: volume = 50")
+                }
+            case "delay_time":
+                value, ok := strconv.parse_f32(words[2])
+                if ok {
+                    app.delay_time = value
+                } else {
+                    fmt.eprintln("[msc.cfg] invalid 'delay_time' value in line ", line_number, ": ", words[2], "\nexample: delay_time = 5")
+                }
+            case:
+                fmt.eprintln("[msc.cfg] unknown config name '", words[0], "' in line ", line_number)
+        }
+    }
 }
 
 app_run :: proc(app: ^App, ctx: ^Ui_Context)
@@ -39,6 +88,7 @@ app_run :: proc(app: ^App, ctx: ^Ui_Context)
     app.bottom.rect = { 0, ctx.height - 55, ctx.width, 55 }
 
     right_width := ctx.width / 3
+    if right_width > 400 do right_width = 400
     app.left.rect = { 0, 0, ctx.width - right_width, ctx.height - app.bottom.h }
     app.right.rect = { app.left.w, 0, right_width, ctx.height - app.bottom.h }
 
@@ -56,7 +106,7 @@ app_run :: proc(app: ^App, ctx: ^Ui_Context)
 
     if ctx.msg != .PAINT && ctx.redraw
     {
-        win32.InvalidateRect(ctx.win_handle, nil, win32.TRUE)
+        platform_redraw(app)
         // refresh_draw()
     }
 }
@@ -80,8 +130,11 @@ change_current_path :: proc(app: ^App, new_path: string)
         os.file_info_slice_delete(app.file_list)
     }
     app.file_list = []os.File_Info{}
-    delete(app.current_path)
-    app.current_path = new_path
+
+    if app.current_path != "" {
+        delete(app.current_path)
+    }
+    app.current_path = strings.clone(new_path)
     update_file_list(app)
 }
 
@@ -108,7 +161,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
     x := 5
     margin := 5 // inset
     padding := 5 // for items
-    item_height := FONT_HEIGHT + padding
+    item_height := app.font_height + padding
 
     clip := app.left
     clip.x += margin
@@ -165,7 +218,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
         if at_y + item_height >= list_scroll &&
            at_y < list_scroll + height
         {
-            name := strings.concatenate([]string{"+ ", cursor.name}, context.temp_allocator) if cursor.is_dir && cursor.name != ".." else cursor.name
+            name := strings.concatenate([]string{": ", cursor.name}, context.temp_allocator) if cursor.is_dir && cursor.name != ".." else cursor.name
 
             rect := get_text_size(ctx, name)
             if button(ctx, x, at_y - list_scroll, rect.w + padding, rect.h + padding, name, clip, { text_align = {TA_LEFT, TA_CENTER}, inset = 5})
@@ -178,7 +231,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
                     if ok
                     {
                         add_music_to_queue(app, music_info)
-                        if win32.GetKeyState(win32.VK_SHIFT) >= 0 do jump_queue(app, len(app.queue) - 1)
+                        if platform_get_shift_key() do jump_queue(app, len(app.queue) - 1)
                         fmt.println(music_info)
                     }
                 }
@@ -188,11 +241,11 @@ ui_music_list :: proc(app: ^App, ctx: ^Ui_Context)
                     {
                         clean := filepath.clean(app.current_path, context.temp_allocator)
                         up, _ := filepath.split(clean)
-                        new_path = strings.clone(up)
+                        new_path = up
                     }
                     else
                     {
-                        new_path = strings.clone(cursor.fullpath)
+                        new_path = cursor.fullpath
                     }
                 }
                 ctx.redraw = true
@@ -305,8 +358,7 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
        point_in_rect(ctx.cx, ctx.cy, vol_bar)
     {
         new_vol := f32(ctx.cx - vol_bar.x) / f32(vol_bar.w)
-        app.volume = max(min(new_vol, 1), 0)
-        ma.engine_set_volume(&app.engine, app.volume)
+        change_volume(app, new_vol)
     }
     right_of_play_x += vol_bar.w + 5
 
@@ -319,7 +371,7 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
         length_sec := int(app.length) % 60
         str := fmt.tprintf("%d:%02d/%d:%02d", cursor_min, cursor_sec, length_min, length_sec)
         rect := get_text_size(ctx, str)
-        label(ctx, button_play.x + button_play.w + right_of_play_x, button_play.y + (button_play.h - FONT_HEIGHT) / 2, str)
+        label(ctx, button_play.x + button_play.w + right_of_play_x, button_play.y + (button_play.h - app.font_height) / 2, str)
         right_of_play_x += rect.w + 5
     }
 
@@ -336,7 +388,7 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
 
     if button(ctx,
               int(button_play.x - loop_size.w - 5),
-              int(button_play.y + (button_play.h - FONT_HEIGHT) / 2 - padding / 2),
+              int(button_play.y + (button_play.h - app.font_height) / 2 - padding / 2),
               int(loop_size.w),
               int(loop_size.h),
               loop_text)
@@ -348,7 +400,7 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Ui_Context)
     set_text_align(ctx, TA_RIGHT)
     set_text_color(ctx, 1)
     str := fmt.tprintf(int(app.speed * 100) % 10 == 0 ? "%.1fx" : "%.2fx", app.speed)
-    label(ctx, button_play.x - loop_size.w - 10, button_play.y + (button_play.h - FONT_HEIGHT) / 2, str)
+    label(ctx, button_play.x - loop_size.w - 10, button_play.y + (button_play.h - app.font_height) / 2, str)
 
     // ---------- PLAY BUTTON
     if button(ctx, button_play.x, button_play.y, button_play.w, button_play.h, playing)
@@ -367,7 +419,7 @@ ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
     x := app.right.x
     margin := 5
     padding := 5
-    item_height := FONT_HEIGHT + padding
+    item_height := app.font_height + padding
 
     if ctx.scroll != 0
     {
@@ -444,4 +496,10 @@ ui_panel_right :: proc(app: ^App, ctx: ^Ui_Context)
     draw_rect(ctx, x + width - 2 * margin, margin + title_height, margin, app.right.h - margin - title_height)
     set_color(ctx, theme.background)
     draw_rect(ctx, x + width - margin, app.right.y, margin, app.right.h)
+}
+
+change_volume :: proc(app: ^App, value: f32)
+{
+    app.volume = max(min(value, 1), 0)
+    ma.engine_set_volume(&app.engine, app.volume)
 }
