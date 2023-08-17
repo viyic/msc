@@ -68,7 +68,7 @@ button :: proc(
         ctx.next_cursor = .HAND
     }
 
-    result = hover && app.mouse_down
+    result = hover && ctx.mouse_down
 
     if ctx.msg == .PAINT
     {
@@ -116,7 +116,7 @@ button :: proc(
         if config.text_align.x == TA_CENTER do x_ += w / 2
         else if config.text_align.x == TA_RIGHT do x_ += w - config.inset.x
         else do x_ += config.inset.x / 2
-        label(ctx, x_, y + (h - app.font_height) / 2, str)
+        label(ctx, x_, y + (h - ctx.font_height) / 2, str)
         set_text_color(ctx, 0)
     }
     else
@@ -133,8 +133,8 @@ button :: proc(
     if config.double_click
     {
         if ctx.msg == .MOUSE_DOUBLE_CLICK &&
-           between_equal_left(x, app.last_click_cx, x + w) &&
-           between_equal_left(y, app.last_click_cy, y + h)
+           between_equal_left(x, ctx.last_click_cx, x + w) &&
+           between_equal_left(y, ctx.last_click_cy, y + h)
         {
             clicked = true
         }

@@ -8,26 +8,6 @@ import "core:path/filepath"
 import win32 "core:sys/windows"
 import ma "vendor:miniaudio"
 
-ma_engine_data_callback :: proc "cdecl" (pDevice: ^ma.device, pFramesOut, pFramesIn: rawptr, frameCount: u32)
-{
-    context = runtime.default_context()
-    when USE_TRACKING_ALLOCATOR
-    {
-        context.allocator = track_allocator
-    }
-    pEngine := (^ma.engine)(pDevice.pUserData)
-
-    // pFramesIn
-
-    ma.engine_read_pcm_frames(pEngine, pFramesOut, u64(frameCount), nil)
-
-    if ma.sound_at_end(&app.sound)
-    {
-        handle_end_of_music(&app)
-        platform_redraw(&app)
-    }
-}
-
 reset_queue :: proc(app: ^App)
 {
     // for i: u32 = 0; i < app.queue_max_count; i += 1
@@ -149,7 +129,7 @@ handle_end_of_music :: proc(app: ^App)
     }
     else if app.loop == .DELAY
     {
-        ma.sound_stop(&app.sound)
+        // ma.sound_stop(&app.sound)
         ma.sound_uninit(&app.sound)
         platform_timer_start(app, .DELAY, u32(app.delay_time * 1000))
         fmt.println("DELAY_TIMER start")
@@ -169,7 +149,7 @@ handle_end_of_music :: proc(app: ^App)
             else
             {
                 jump_queue(app, -1)
-                ma.sound_stop(&app.sound)
+                // ma.sound_stop(&app.sound)
                 ma.sound_uninit(&app.sound)
                 app.paused = true
                 platform_window_set_text(app, "msc")
@@ -328,7 +308,13 @@ parse_mp3 :: proc(file_name: string) -> Music_Info
             result = string(frame_body[1:])
             result = strings.to_valid_utf8(result, "", context.temp_allocator)
         }
-        result, _ = strings.remove_all(result, "\x00", allocator)
+
+        was_allocation: bool
+        result, was_allocation = strings.remove_all(result, "\x00", allocator)
+        if !was_allocation
+        {
+            result = strings.clone(result)
+        }
 
         return result
     }
@@ -452,7 +438,7 @@ jump_queue :: proc(app: ^App, queue_index: int, caller := #caller_location)
     {
         title = fmt.tprint(filepath.stem(music_info.full_path), "- msc")
     }
-    fmt.println(title)
+    // fmt.println(title)
     platform_window_set_text(app, title)
 }
 
@@ -476,8 +462,11 @@ get_music_info_from_path :: proc(path: string) -> (Music_Info, bool)
         case ".flac":
             music_info = parse_flac(path)
         case ".wav":
+            fmt.eprintln("unimplemented file extension: wav")
         case ".ogg":
+            fmt.eprintln("unimplemented file extension: ogg")
         case:
+            fmt.eprintln("unsupported file extension")
             ok = false
     }
 

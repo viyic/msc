@@ -26,9 +26,11 @@ App :: struct
     loop: Loop_State,
     delay_time: f32, // in seconds
 
+    music_view: Music_View,
     left: Panel,
     right: Panel,
     bottom: Panel,
+    top_left: Panel,
 
     current_path: string,
     file_list: []os.File_Info,
@@ -41,6 +43,12 @@ App :: struct
     last_click_time: u64,
 
     last_cursor: Cursor,
+}
+
+Music_View :: enum
+{
+    FILE,
+    GRID,
 }
 
 Ui_Message :: enum

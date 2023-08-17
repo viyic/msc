@@ -12,7 +12,11 @@ app_init :: proc(app: ^App, win_handle: platform_window_handle) -> bool
 {
     ok: bool
     app.executable_path, ok = platform_get_executable_path()
-    if !ok do return false
+    if !ok
+    {
+        fmt.eprintln("get executable path failed")
+        return false
+    }
 
     app.win_handle = win_handle
 
@@ -46,14 +50,14 @@ config_init :: proc(app: ^App)
     dir := filepath.dir(app.executable_path, context.temp_allocator)
 
     config, ok := os.read_entire_file(filepath.join([]string{dir, "msc.cfg"}))
-    defer delete(config)
-
     if !ok do return
+    defer delete(config)
 
     lines := strings.split_lines(string(config[:]))
     defer delete(lines)
     for line, line_number in lines {
         words := strings.split_n(line, " ", 3)
+        defer delete(words)
         if len(words) != 3 || words[0] == "#" || words[1] != "=" do continue
 
         switch words[0] {
@@ -98,7 +102,8 @@ app_run :: proc(app: ^App, ctx: ^Platform_Ui_Context)
 
     right_width := ctx.width / 3
     if right_width > 400 do right_width = 400
-    app.left.rect = { 0, 0, ctx.width - right_width, ctx.height - app.bottom.h }
+    app.top_left.rect = { 0, 0, ctx.width - right_width, app.font_height + 20 }
+    app.left.rect = { 0, app.top_left.h, ctx.width - right_width, ctx.height - app.bottom.h - app.top_left.h }
     app.right.rect = { app.left.w, 0, right_width, ctx.height - app.bottom.h }
 
     set_color(ctx, theme.background)
@@ -108,6 +113,10 @@ app_run :: proc(app: ^App, ctx: ^Platform_Ui_Context)
     ui_panel_right(app, ctx)
     ui_panel_bottom(app, ctx)
 
+    set_color(ctx, theme.background)
+    draw_rect(ctx, app.top_left.rect)
+    ui_panel_top_left(app, ctx)
+
     if ctx.next_cursor == .NONE
     {
         ctx.next_cursor = .ARROW
@@ -116,7 +125,6 @@ app_run :: proc(app: ^App, ctx: ^Platform_Ui_Context)
     if ctx.msg != .PAINT && ctx.redraw
     {
         platform_redraw(app)
-        // refresh_draw()
     }
 }
 
@@ -134,6 +142,8 @@ update_file_list :: proc(app: ^App)
 
 change_current_path :: proc(app: ^App, new_path: string)
 {
+    new_path_ := strings.clone(new_path)
+
     if len(app.file_list) > 0
     {
         os.file_info_slice_delete(app.file_list)
@@ -143,7 +153,7 @@ change_current_path :: proc(app: ^App, new_path: string)
     if app.current_path != "" {
         delete(app.current_path)
     }
-    app.current_path = strings.clone(new_path)
+    app.current_path = new_path_
     update_file_list(app)
 }
 
@@ -156,11 +166,49 @@ theme_init_default :: proc(theme: ^Theme)
     theme.button.click = { 0.35, 0.35, 0.35 }
 }
 
+ui_panel_top_left :: proc(app: ^App, ctx: ^Platform_Ui_Context)
+{
+    margin := 5
+    padding := 5
+    // set_color(ctx, 0.15)
+    // draw_rect(ctx, app.top_left.x + margin, app.top_left.y + margin, app.top_left.w - 2 * margin, app.top_left.h - margin)
+
+    y := app.top_left.y + margin
+    at_x := app.top_left.x + margin
+
+    name: string
+    rect: Rect
+
+    name = "File"
+    rect = platform_get_text_size(ctx, name)
+    if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name)
+    {
+        app.music_view = .FILE
+        ctx.redraw = true
+    }
+    at_x += rect.w + padding + margin
+
+    name = "Grid"
+    rect = platform_get_text_size(ctx, name)
+    if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name)
+    {
+        app.music_view = .GRID
+        ctx.redraw = true
+    }
+    at_x += rect.w + padding + margin
+}
+
 ui_panel_left :: proc(app: ^App, ctx: ^Platform_Ui_Context)
 {
     // ---------- QUEUE
-    ui_music_list(app, ctx)
-    // ui_music_grid(app, ctx)
+    if app.music_view == .FILE
+    {
+        ui_music_list(app, ctx)
+    }
+    else
+    {
+        // ui_music_grid(app, ctx)
+    }
 }
 
 ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context)
@@ -184,7 +232,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context)
         ctx.redraw = true
     }
 
-    at_y := margin
+    at_y := app.left.y + margin
 
     filter_proc :: proc(item: os.File_Info) -> bool
     {
@@ -207,6 +255,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context)
         file_list_
     })
     delete(file_list_)
+    defer delete(file_list)
 
     sort_proc :: proc(a: os.File_Info, b: os.File_Info) -> bool
     {
@@ -239,7 +288,6 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context)
                 if !cursor.is_dir
                 {
                     music_info, ok := get_music_info_from_path(cursor.fullpath)
-                    // request_redraw(ctx, { app.left.x, app.left.y, app.left.width, app.left.height })
 
                     if ok
                     {
@@ -261,6 +309,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context)
                         new_path = cursor.fullpath
                     }
                 }
+
                 ctx.redraw = true
             }
         }
@@ -335,8 +384,9 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context)
             result := ma.data_source_get_length_in_pcm_frames(app.sound.pDataSource, &pcm_length)
             result = ma.data_source_get_data_format(app.sound.pDataSource, nil, nil, &sample_rate, nil, 0)
             if result == .SUCCESS {
-                // if app.paused
+                // if !sound_exists(app)
                 // {
+                //     jump_queue(app, 0)
                 //     toggle_pause_music(app)
                 // }
                 normalized := f32(ctx.cx - play_bar.x)
@@ -419,8 +469,6 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context)
     if button(ctx, button_play.x, button_play.y, button_play.w, button_play.h, playing)
     {
         toggle_pause_music(app)
-        // refresh_draw()
-        // request_redraw(ctx, { app->bottom.x, app->bottom.y, app->bottom.width, app->bottom.height })
         ctx.redraw = true
     }
     // draw_ellipse(ctx, button_play.x, button_play.y, button_play.x + button_play.w, button_play.y + button_play.h)
@@ -457,7 +505,7 @@ ui_panel_right :: proc(app: ^App, ctx: ^Platform_Ui_Context)
 
     set_text_align(ctx, TA_CENTER)
     set_text_color(ctx, 1)
-    label(ctx, x + width / 2, at_y + (title_height - item_height) / 2, "List")
+    label(ctx, x + width / 2, at_y + (title_height - item_height) / 2, "Playlist")
 
     at_y += title_height + margin
 

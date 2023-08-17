@@ -9,6 +9,7 @@ import "core:path/filepath"
 import win32 "core:sys/windows"
 import ma "vendor:miniaudio"
 
+@(private="file")
 app: App
 theme: Theme
 
@@ -41,7 +42,11 @@ main :: proc()
     }
 
     win_handle := platform_window_create()
-    if win_handle == nil do return
+    if win_handle == nil
+    {
+        fmt.eprintln("window creation failed")
+        return
+    }
 
     if !app_init(&app, win_handle) do return
 
@@ -77,8 +82,6 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
 
     result: LRESULT = 0
 
-    ctx := platform_ui_context_create(win_handle)
-
     switch msg
     {
         case WM_CLOSE:
@@ -111,8 +114,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
             {
                 if (ma.sound_is_playing(&app.sound))
                 {
-                    invalidate := RECT{ 0, i32(ctx.height - 100), i32(ctx.width), i32(ctx.height) }
-                    InvalidateRect(win_handle, &invalidate, TRUE)
+                    InvalidateRect(win_handle, nil, TRUE)
                     // SetTimer(win_handle, REFRESH_TIMER, 200, nil)
                 }
                 else
@@ -157,79 +159,73 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                         // reset_queue(&app)
                         music_info, ok := get_music_info_from_path(path)
                         if ok do add_music_to_queue(&app, music_info)
-                        else do delete(path)
+                        delete(path)
                         fmt.println("playing \"", path, "\"")
-                        // print_music_title(filename)
                     }
                 case 'p':
                     // toggle_pause_music(&app)
                 case ',':
-                    // jump_queue(&app, app.playing_index - 1)
+                    jump_queue(&app, app.playing_index - 1)
                 case '.':
-                    // jump_queue(&app, app.playing_index + 1)
+                    jump_queue(&app, app.playing_index + 1)
                 case 'q':
                     change_speed(&app, -1)
                 case 'w':
                     change_speed(&app, 1)
-                case 'b':
-                    app.left.scroll = min(app.left.scroll + 0.1, 1)
-                case 'v':
-                    app.left.scroll = max(app.left.scroll - 0.1, 0)
             }
 
             InvalidateRect(win_handle, nil, TRUE)
 
         case WM_KEYDOWN, WM_SYSKEYDOWN:
-            if wparam == VK_ESCAPE
+            switch wparam
             {
-                PostQuitMessage(0)
-            }
-            else if wparam == VK_SPACE
-            {
-                toggle_pause_music(&app)
-                InvalidateRect(win_handle, nil, TRUE)
-            }
-            else if wparam == VK_BACK
-            {
-                index := 0
-                // prev: ^Music_File = nil
-                /*
-                for cursor: ^Music_File = app.queue_first
-                    cursor != nil
-                    cursor = cursor.next
-                {
-                    if (index == app.playing_index)
+                case VK_ESCAPE:
+                    PostQuitMessage(0)
+                case VK_SPACE:
+                    toggle_pause_music(&app)
+                    InvalidateRect(win_handle, nil, TRUE)
+                case VK_BACK:
+                    index := 0
+                    // prev: ^Music_File = nil
+                    /*
+                    for cursor: ^Music_File = app.queue_first
+                        cursor != nil
+                        cursor = cursor.next
                     {
-                        if (prev)
+                        if (index == app.playing_index)
                         {
-                            prev->next = cursor->next
+                            if (prev)
+                            {
+                                prev->next = cursor->next
+                            }
+                            else
+                            {
+                                app.queue_first = cursor->next
+                            }
+                            cursor->active = false
+                            cursor->next = nil
+                            app.paused = true
+                            if app.queue_first == nil
+                            {
+                                ma.sound_uninit(&app.sound)
+                            }
+                            else
+                            {
+                                jump_queue(&app, MIN(cast(int) queue_count(&app) - 1, index))
+                                ma.sound_stop(&app.sound)
+                            }
+                            break
                         }
-                        else
-                        {
-                            app.queue_first = cursor->next
-                        }
-                        cursor->active = false
-                        cursor->next = nil
-                        app.paused = true
-                        if app.queue_first == nil
-                        {
-                            ma.sound_uninit(&app.sound)
-                        }
-                        else
-                        {
-                            jump_queue(&app, MIN(cast(int) queue_count(&app) - 1, index))
-                            ma.sound_stop(&app.sound)
-                        }
-                        break
+                        index += 1
+                        prev = cursor
                     }
-                    index += 1
-                    prev = cursor
-                }
-                */
-                InvalidateRect(win_handle, nil, TRUE)
+                    */
+                    InvalidateRect(win_handle, nil, TRUE)
             }
 
         case WM_MOUSEMOVE:
+            ctx := platform_ui_context_create(&app)
+
             // @todo @analyze: does this affect performance a lot?
             // is there a better way to do this?
             ctx.msg = .MOUSE_MOVE
@@ -261,6 +257,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
 
                 if !prev_mouse_down
                 {
+                    ctx := platform_ui_context_create(&app)
                     time: FILETIME
                     GetSystemTimePreciseAsFileTime(&time)
                     time64 := u64(time.dwLowDateTime) + u64(time.dwHighDateTime << 32)
@@ -282,6 +279,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
         case WM_LBUTTONUP:
             if app.mouse_down
             {
+                ctx := platform_ui_context_create(&app)
                 ctx.msg = .MOUSE_LEFT_RELEASED
                 app_run(&app, &ctx)
             }
@@ -290,6 +288,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
             InvalidateRect(win_handle, nil, TRUE)
 
         case WM_MOUSEWHEEL:
+            ctx := platform_ui_context_create(&app)
             ctx.scroll = f32(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 4
             ctx.msg = .MOUSE_WHEEL
             app_run(&app, &ctx)
@@ -306,7 +305,7 @@ win_proc :: proc "stdcall" (win_handle: win32.HWND, msg: win32.UINT, wparam: win
                 prev_brush: HBRUSH = cast(HBRUSH) SelectObject(hdc, GetStockObject(DC_BRUSH))
                 SelectObject(hdc, GetStockObject(NULL_PEN))
 
-                ctx.hdc = hdc
+                ctx := platform_ui_context_create(&app, hdc)
                 ctx.msg = .PAINT
                 app_run(&app, &ctx)
 
@@ -327,6 +326,8 @@ font_init :: proc(app: ^App)
 {
     using win32
 
+    font_name := win32.utf8_to_wstring(app.font_name, context.allocator)
+    defer free(font_name)
     font_default = CreateFontW(i32(app.font_height), 0,
                                0, 0,
                                FW_DONTCARE,
@@ -336,7 +337,27 @@ font_init :: proc(app: ^App)
                                CLIP_DEFAULT_PRECIS,
                                DEFAULT_QUALITY,
                                DEFAULT_PITCH | FF_DONTCARE,
-                               win32.utf8_to_wstring(app.font_name, context.allocator))
+                               font_name)
+}
+
+ma_engine_data_callback :: proc "cdecl" (pDevice: ^ma.device, pFramesOut, pFramesIn: rawptr, frameCount: u32)
+{
+    context = runtime.default_context()
+    when USE_TRACKING_ALLOCATOR
+    {
+        context.allocator = track_allocator
+    }
+    pEngine := (^ma.engine)(pDevice.pUserData)
+
+    // pFramesIn
+
+    ma.engine_read_pcm_frames(pEngine, pFramesOut, u64(frameCount), nil)
+
+    if ma.sound_at_end(&app.sound)
+    {
+        handle_end_of_music(&app)
+        platform_redraw(&app)
+    }
 }
 
 /*

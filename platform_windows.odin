@@ -10,16 +10,22 @@ platform_window_handle :: win32.HWND
 platform_font_handle :: win32.HFONT
 platform_cursor_handle :: win32.HCURSOR
 
-platform_ui_context_create :: proc(win_handle: platform_window_handle) -> Platform_Ui_Context
+platform_ui_context_create :: proc(app: ^App, hdc: win32.HDC = nil) -> Platform_Ui_Context
 {
     using win32
 
     ctx: Platform_Ui_Context
-    ctx.win_handle = win_handle
-    ctx.text_align = TA_CENTER
+    ctx.win_handle = app.win_handle
+    ctx.hdc = hdc
+    ctx.last_click_cx = app.last_click_cx
+    ctx.last_click_cy = app.last_click_cy
+    ctx.mouse_down = app.mouse_down
+    ctx.font_height = app.font_height
+
+    set_text_align(&ctx, TA_CENTER)
 
     win: RECT
-    if GetClientRect(win_handle, &win)
+    if GetClientRect(ctx.win_handle, &win)
     {
         ctx.width = int(win.right - win.left)
         ctx.height = int(win.bottom - win.top)
@@ -28,7 +34,7 @@ platform_ui_context_create :: proc(win_handle: platform_window_handle) -> Platfo
     cursor: POINT
     if GetCursorPos(&cursor)
     {
-        ScreenToClient(win_handle, &cursor)
+        ScreenToClient(ctx.win_handle, &cursor)
         ctx.cx = int(cursor.x)
         ctx.cy = int(cursor.y)
     }
@@ -75,7 +81,7 @@ platform_open_file_dialog :: proc(filter: string, allocator := context.allocator
 
     context.allocator = allocator
 
-    max_length: u32 = MAX_PATH_WIDE
+    max_length := u32(MAX_PATH_WIDE)
     file_buf := make([]u16, max_length)
     defer delete(file_buf)
     // @note: use normal allocator to prevent overwrite
@@ -93,10 +99,7 @@ platform_open_file_dialog :: proc(filter: string, allocator := context.allocator
 
     ok = bool(win32.GetOpenFileNameW(&ofn))
 
-    if !ok
-    {
-        return
-    }
+    if !ok do return
 
     file_name, _ := utf16_to_utf8(file_buf[:], allocator)
     path = strings.trim_right_null(file_name)
@@ -176,16 +179,15 @@ platform_window_create :: proc() -> win32.HWND
         instance,
         nil,
     )
+    if win_handle == nil do return nil
 
-    if win_handle != nil {
-        // windows dark titlebar
-        DWMWA_USE_IMMERSIVE_DARK_MODE :: 20
-        dark_mode: BOOL = TRUE
-        DwmSetWindowAttribute(win_handle, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_mode, size_of(dark_mode))
+    // windows dark titlebar
+    DWMWA_USE_IMMERSIVE_DARK_MODE :: 20
+    dark_mode: BOOL = TRUE
+    DwmSetWindowAttribute(win_handle, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_mode, size_of(dark_mode))
 
-        cursor_arrow = LoadCursorA(nil, IDC_ARROW) // LoadCursorW?
-        cursor_hand = LoadCursorA(nil, IDC_HAND)
-    }
+    cursor_arrow = LoadCursorA(nil, IDC_ARROW) // LoadCursorW?
+    cursor_hand = LoadCursorA(nil, IDC_HAND)
 
     return win_handle
 }
@@ -197,6 +199,10 @@ Platform_Ui_Context :: struct
     scroll: f32,
     msg: Ui_Message,
     text_align: u32,
+
+    font_height: int,
+    last_click_cx, last_click_cy: int,
+    mouse_down: b32,
 
     redraw: b32,
     redraw_rect: win32.RECT,
