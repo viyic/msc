@@ -29,6 +29,7 @@ App :: struct {
 	music_infos:                  [dynamic]Music_Info,
 	queue:                        [dynamic]int,
 	playing_index:                int,
+	selected_index:               int,
 	last_click_cx, last_click_cy: int,
 	last_click_time:              u64,
 	last_cursor:                  Cursor,

@@ -9,6 +9,9 @@ import win32 "core:sys/windows"
 import ma "vendor:miniaudio"
 
 reset_queue :: proc(app: ^App) {
+	// @todo: memleak
+	clear(&app.queue)
+	handle_end_of_music(app)
 	// for i: u32 = 0; i < app.queue_max_count; i += 1
 	// {
 	// music: ^Music_File = &app->queue[i]

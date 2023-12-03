@@ -70,7 +70,7 @@ main :: proc() {
 	if !app_init(&app, win_handle) do return
 
 	config_init(&app)
-	font_init(&app)
+	platform_font_init(&app)
 
 	ShowWindow(win_handle, SW_SHOWNORMAL)
 	UpdateWindow(win_handle)
@@ -201,6 +201,8 @@ win_proc :: proc "stdcall" (
 			change_speed(&app, -1)
 		case 'w':
 			change_speed(&app, 1)
+		case 'r':
+			reset_queue(&app)
 		}
 
 		InvalidateRect(win_handle, nil, TRUE)
@@ -213,8 +215,12 @@ win_proc :: proc "stdcall" (
 		case VK_SPACE:
 			toggle_pause_music(&app)
 			InvalidateRect(win_handle, nil, TRUE)
+		case VK_DELETE:
 		case VK_BACK:
-			index := 0
+			if app.playing_index > -1 {
+				ordered_remove(&app.queue, app.playing_index) // @todo: turn to linked list?
+				handle_end_of_music(&app)
+			}
 			// prev: ^Music_File = nil
 			/*
                     for cursor: ^Music_File = app.queue_first
@@ -291,6 +297,10 @@ win_proc :: proc "stdcall" (
 				app.last_click_cx = ctx.cx
 				app.last_click_cy = ctx.cy
 				app.last_click_time = time64
+			} else {
+				ctx := platform_ui_context_create(&app)
+				ctx.msg = .MOUSE_LEFT_PRESSED
+				app_run(&app, &ctx)
 			}
 
 			InvalidateRect(win_handle, nil, TRUE)
@@ -344,29 +354,6 @@ win_proc :: proc "stdcall" (
 	}
 
 	return result
-}
-
-font_init :: proc(app: ^App) {
-	using win32
-
-	font_name := win32.utf8_to_wstring(app.font_name, context.allocator)
-	defer free(font_name)
-	font_default = CreateFontW(
-		i32(app.font_height),
-		0,
-		0,
-		0,
-		FW_DONTCARE,
-		0,
-		0,
-		0,
-		ANSI_CHARSET,
-		OUT_DEFAULT_PRECIS,
-		CLIP_DEFAULT_PRECIS,
-		DEFAULT_QUALITY,
-		DEFAULT_PITCH | FF_DONTCARE,
-		font_name,
-	)
 }
 
 ma_engine_data_callback :: proc "cdecl" (

@@ -158,12 +158,16 @@ platform_window_create :: proc() -> win32.HWND {
 	win_class.hInstance = instance
 	win_class.lpszClassName = class_name
 	win_class.style = CS_HREDRAW | CS_VREDRAW
-	win_class.hIcon = HICON(
-		LoadImageW(instance, win32.L("MSC_ICON"), IMAGE_ICON, LR_DEFAULTSIZE, LR_DEFAULTSIZE, 0),
+	icon := cast(HICON)LoadImageW(
+		instance,
+		win32.L("MSC_ICON"),
+		IMAGE_ICON,
+		LR_DEFAULTSIZE,
+		LR_DEFAULTSIZE,
+		0,
 	)
-	win_class.hIconSm = HICON(
-		LoadImageW(instance, win32.L("MSC_ICON"), IMAGE_ICON, LR_DEFAULTSIZE, LR_DEFAULTSIZE, 0),
-	)
+	win_class.hIcon = icon
+	win_class.hIconSm = icon
 	if !b32(RegisterClassExW(&win_class)) do return nil
 
 	win_handle := CreateWindowExW(
@@ -196,6 +200,29 @@ platform_window_create :: proc() -> win32.HWND {
 	cursor_hand = LoadCursorA(nil, IDC_HAND)
 
 	return win_handle
+}
+
+platform_font_init :: proc(app: ^App) {
+	using win32
+
+	font_name := win32.utf8_to_wstring(app.font_name, context.allocator)
+	defer free(font_name)
+	font_default = CreateFontW(
+		i32(app.font_height),
+		0,
+		0,
+		0,
+		FW_DONTCARE,
+		0,
+		0,
+		0,
+		ANSI_CHARSET,
+		OUT_DEFAULT_PRECIS,
+		CLIP_DEFAULT_PRECIS,
+		DEFAULT_QUALITY,
+		DEFAULT_PITCH | FF_DONTCARE,
+		font_name,
+	)
 }
 
 Platform_Ui_Context :: struct {
