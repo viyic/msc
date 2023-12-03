@@ -5,6 +5,7 @@ import "core:runtime"
 import "core:mem"
 import "core:os"
 import "core:strconv"
+import "core:strings"
 import "core:path/filepath"
 import win32 "core:sys/windows"
 import ma "vendor:miniaudio"
@@ -61,11 +62,35 @@ main :: proc()
         SetTimer(win_handle, TRACK_TIMER, 1000, nil)
     }
 
-    msg: MSG
-    for GetMessageW(&msg, nil, 0, 0)
+    when false
     {
-        TranslateMessage(&msg)
-        DispatchMessageW(&msg)
+        read_music_dir(&app)
+        data_path := strings.concatenate([]string{filepath.dir(app.executable_path, context.temp_allocator), "\\msc.data"}, context.temp_allocator)
+        data_file, ok := os.read_entire_file_from_filename(data_path)
+        if !ok do return
+        defer delete(data_file)
+        lines := strings.split_lines(string(data_file))
+        defer delete(lines)
+        for line in lines
+        {
+            TOTAL_INFO :: 5
+            word := strings.split_n(line, " | ", TOTAL_INFO)
+            defer delete(word)
+            if len(word) < TOTAL_INFO do continue
+
+            fmt.println(word[1], word[3], word[0])
+        }
+
+        return
+    }
+    else
+    {
+        msg: MSG
+        for GetMessageW(&msg, nil, 0, 0)
+        {
+            TranslateMessage(&msg)
+            DispatchMessageW(&msg)
+        }
     }
 }
 

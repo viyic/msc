@@ -129,3 +129,24 @@ button_config_default :: Button_Config{
     inset = 5,
     double_click = false,
 }
+
+Music_Info_Serialize :: enum
+{
+    FULL_PATH,
+    ARTIST,
+    ALBUM,
+    TITLE,
+    RELEASE_TIME,
+}
+
+MUSIC_INFO_SERIALIZE :: [Music_Info_Serialize]string{
+    // .FULL_PATH = "full_path"
+}
+
+serialize :: proc(music_info: Music_Info)
+{
+    for name, index in Music_Info_Serialize
+    {
+
+    }
+}

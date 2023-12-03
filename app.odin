@@ -49,7 +49,7 @@ config_init :: proc(app: ^App)
 {
     dir := filepath.dir(app.executable_path, context.temp_allocator)
 
-    config, ok := os.read_entire_file(filepath.join([]string{dir, "msc.cfg"}))
+    config, ok := os.read_entire_file(filepath.join([]string{dir, "msc.cfg"}, context.temp_allocator))
     if !ok do return
     defer delete(config)
 
@@ -238,11 +238,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context)
     {
         ext := filepath.ext(item.name)
 
-        return item.is_dir ||
-             ext == ".mp3" ||
-             ext == ".flac" ||
-             ext == ".wav" ||
-             ext == ".ogg"
+        return item.is_dir || is_supported_audio_file(ext)
     }
     file_list_ := slice.filter(app.file_list, filter_proc)
     file_list := slice.concatenate([][]os.File_Info{

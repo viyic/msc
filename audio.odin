@@ -388,26 +388,30 @@ parse_flac :: proc(file_name: string) -> Music_Info
                           u64(tag[1]) << 8 |
                           u64(tag[2]) << 16 |
                           u64(tag[3]) << 24
-            tag_content := tag[4:][:tag_length]
-            if string(tag_content[:6]) == "TITLE="
+            tag_content := string(tag[4:][:tag_length])
+            tag_content_len := len(tag_content)
+            if tag_content_len > 5 && tag_content[:5] == "DATE="
             {
-                result.title = strings.clone(string(tag_content[6:]))
+                result.release_time = strings.clone(tag_content[5:])
             }
-            else if string(tag_content[:6]) == "ALBUM="
+            else if tag_content_len > 6 && tag_content[:6] == "TITLE="
             {
-                result.album = strings.clone(string(tag_content[6:]))
+                result.title = strings.clone(tag_content[6:])
             }
-            else if result.artist == "" && string(tag_content[:7]) == "ARTIST="
+            else if tag_content_len > 6 && tag_content[:6] == "ALBUM="
             {
-                result.artist = strings.clone(string(tag_content[7:]))
+                result.album = strings.clone(tag_content[6:])
             }
-            else if result.artist == "" && string(tag_content[:12]) == "ALBUMARTIST="
+            else if result.artist == ""
             {
-                result.artist = strings.clone(string(tag_content[12:]))
-            }
-            else if string(tag_content[:5]) == "DATE="
-            {
-                result.release_time = strings.clone(string(tag_content[5:]))
+                if tag_content_len > 7 && tag_content[:7] == "ARTIST="
+                {
+                    result.artist = strings.clone(tag_content[7:])
+                }
+                else if tag_content_len > 12 && tag_content[:12] == "ALBUMARTIST="
+                {
+                    result.artist = strings.clone(tag_content[12:])
+                }
             }
 
             cursor += 4 + tag_length
@@ -462,13 +466,100 @@ get_music_info_from_path :: proc(path: string) -> (Music_Info, bool)
         case ".flac":
             music_info = parse_flac(path)
         case ".wav":
-            fmt.eprintln("unimplemented file extension: wav")
+            fmt.eprintln("unimplemented file extension:", ext)
+            ok = false
         case ".ogg":
-            fmt.eprintln("unimplemented file extension: ogg")
+            fmt.eprintln("unimplemented file extension:", ext)
+            ok = false
         case:
-            fmt.eprintln("unsupported file extension")
+            fmt.eprintln("unsupported file extension:", ext)
             ok = false
     }
 
     return music_info, ok
+}
+
+read_music_dir :: proc(app: ^App)
+{
+    err: os.Errno
+
+    music_dir := app.current_path
+    data_path := strings.concatenate([]string{filepath.dir(app.executable_path, context.temp_allocator), "\\msc.data"}, context.temp_allocator)
+
+    data_handle: os.Handle
+    data_handle, err = os.open(data_path, os.O_CREATE)
+    if err != os.ERROR_NONE
+    {
+        fmt.eprintln("can't write msc data to:", data_path)
+        return
+    }
+    defer os.close(data_handle)
+
+    data := [dynamic]string{}
+
+    // @note: we'll only check 2 folders deep
+    folders_to_read: [dynamic]string
+    folders_to_read_index := 0
+    append(&folders_to_read, strings.clone(music_dir))
+
+    music_infos: [dynamic]Music_Info
+    for folders_to_read_index < len(folders_to_read)
+    {
+        folder_path := folders_to_read[folders_to_read_index]
+        folders_to_read_index += 1
+        fmt.println("reading:", folder_path)
+        file_list_handle: os.Handle
+        file_list_handle, err = os.open(folder_path)
+        if err != os.ERROR_NONE
+        {
+            fmt.eprintln("can't open folder:", folder_path)
+            continue
+        }
+        defer os.close(file_list_handle)
+        file_list: []os.File_Info
+        file_list, err = os.read_dir(file_list_handle, 0)
+        if err != os.ERROR_NONE
+        {
+            fmt.eprintln("can't read folder:", folder_path)
+            continue
+        }
+        defer os.file_info_slice_delete(file_list)
+
+        for file in file_list
+        {
+            if file.is_dir
+            {
+                append(&folders_to_read, strings.clone(file.fullpath))
+            }
+            else
+            {
+                if !is_supported_audio_file(filepath.ext(file.fullpath)) do continue
+                music_info, ok := get_music_info_from_path(file.fullpath)
+                if !ok do continue
+                defer music_info_delete(music_info)
+
+                fmt.fprintln(data_handle, music_info.full_path, "|", music_info.artist, "|", music_info.album, "|", music_info.title, "|", music_info.release_time)
+                // append(&music_infos, music_info)
+            }
+        }
+    }
+
+    for folder in folders_to_read do delete(folder)
+}
+
+music_info_delete :: proc(music_info: Music_Info)
+{
+    if music_info.full_path    != "" do delete(music_info.full_path)
+    if music_info.artist       != "" do delete(music_info.artist)
+    if music_info.title        != "" do delete(music_info.title)
+    if music_info.album        != "" do delete(music_info.album)
+    if music_info.release_time != "" do delete(music_info.release_time)
+}
+
+is_supported_audio_file :: proc(ext: string) -> bool
+{
+     return ext == ".mp3" ||
+            ext == ".flac" ||
+            ext == ".wav" ||
+            ext == ".ogg"
 }
