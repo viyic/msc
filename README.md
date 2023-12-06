@@ -2,6 +2,8 @@
 
 Music player for my own needs (slowed, nightcore/sped up, delayed loop). Uses miniaudio for audio and Win32 for UI. Moved from C++ to Odin.
 
+**STILL VERY EXPERIMENTAL**
+
 ![Preview Image](preview.png)
 
 ## Features
