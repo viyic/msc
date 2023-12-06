@@ -195,24 +195,23 @@ ui_panel_top_left :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	y := app.top_left.y + margin
 	at_x := app.top_left.x + margin
 
-	name: string
-	rect: Rect
-
-	name = "File"
-	rect = platform_get_text_size(ctx, name)
-	if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name) {
-		app.music_view = .FILE
-		ctx.redraw = true
+	if app.music_view == .GRID {
+		name := "File"
+		rect := platform_get_text_size(ctx, name)
+		if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name) {
+			app.music_view = .FILE
+			ctx.redraw = true
+		}
+		at_x += rect.w + padding + margin
+	} else if app.music_view == .FILE {
+		name := "Grid"
+		rect := platform_get_text_size(ctx, name)
+		if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name) {
+			app.music_view = .GRID
+			ctx.redraw = true
+		}
+		at_x += rect.w + padding + margin
 	}
-	at_x += rect.w + padding + margin
-
-	name = "Grid"
-	rect = platform_get_text_size(ctx, name)
-	if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name) {
-		app.music_view = .GRID
-		ctx.redraw = true
-	}
-	at_x += rect.w + padding + margin
 }
 
 ui_panel_left :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
@@ -342,7 +341,6 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	playing := app.paused ? "|>" : "||"
 
 	set_color(ctx, theme.background)
-	// draw_rect(ctx, 0, ctx.height - 55, ctx.width, 55)
 	draw_rect(ctx, app.bottom.x, app.bottom.y, app.bottom.w, app.bottom.h)
 
 	button_play: Rect
@@ -482,7 +480,6 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 		toggle_pause_music(app)
 		ctx.redraw = true
 	}
-	// draw_ellipse(ctx, button_play.x, button_play.y, button_play.x + button_play.w, button_play.y + button_play.h)
 }
 
 ui_panel_right :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
@@ -530,7 +527,9 @@ ui_panel_right :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 
 		str := fmt.tprintf(
 			"%v%v%v%v",
-			app.playing_index == music_info_index ? "> " : "  ",
+			app.playing_index > -1 && app.queue[app.playing_index] == music_info_index \
+			? "> " \
+			: "  ",
 			len(music_info.title) > 0 ? music_info.title : filepath.stem(music_info.full_path),
 			len(music_info.artist) > 0 ? " : " : "",
 			music_info.artist,

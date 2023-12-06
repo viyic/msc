@@ -14,6 +14,8 @@ import ma "vendor:miniaudio"
 app: App
 theme: Theme
 
+DEBUG :: true
+
 START_PATH :: `C:\`
 FONT_DEFAULT_NAME :: "Segoe UI"
 FONT_DEFAULT_HEIGHT :: 20
@@ -189,10 +191,9 @@ win_proc :: proc "stdcall" (
 				music_info, ok := get_music_info_from_path(path)
 				if ok do add_music_to_queue(&app, music_info)
 				delete(path)
-				fmt.println("playing \"", path, "\"")
 			}
 		case 'p':
-		// toggle_pause_music(&app)
+			toggle_pause_music(&app)
 		case ',':
 			jump_queue(&app, app.playing_index - 1)
 		case '.':
@@ -217,10 +218,7 @@ win_proc :: proc "stdcall" (
 			InvalidateRect(win_handle, nil, TRUE)
 		case VK_DELETE:
 		case VK_BACK:
-			if app.playing_index > -1 {
-				ordered_remove(&app.queue, app.playing_index) // @todo: turn to linked list?
-				handle_end_of_music(&app)
-			}
+			remove_from_queue(&app)
 			// prev: ^Music_File = nil
 			/*
                     for cursor: ^Music_File = app.queue_first
