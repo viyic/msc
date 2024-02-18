@@ -118,6 +118,53 @@ config_init :: proc(app: ^App) {
 	}
 }
 
+load_prev_session :: proc(app: ^App) {
+	dir := filepath.dir(app.executable_path, context.temp_allocator)
+
+	prev, ok := os.read_entire_file(
+		filepath.join([]string{dir, "msc.prev"}, context.temp_allocator),
+	)
+	if !ok do return
+	defer delete(prev)
+
+	lines := strings.split_lines(string(prev[:]))
+	defer delete(lines)
+	for line, line_number in lines {
+		// words := strings.split(line, " ")
+		// defer delete(words)
+		// if len(words) != 3 || words[0] == "#" || words[1] != "=" do continue
+		if line == "" do continue
+
+		music_info, ok := get_music_info_from_path(line)
+		if ok {
+			add_music_to_queue(app, music_info)
+		}
+	}
+}
+
+save_prev_session :: proc(app: ^App) {
+	dir := filepath.dir(app.executable_path, context.temp_allocator)
+	path := filepath.join([]string{dir, "msc.prev"}, context.temp_allocator)
+	if len(app.queue) == 0 {
+		os.remove(path)
+		return
+	}
+
+	prev_file, err := os.open(path, os.O_CREATE)
+	if err != os.ERROR_NONE {
+		fmt.print(err)
+		return
+	}
+	defer os.close(prev_file)
+
+	for index in app.queue {
+		music_info := app.music_infos[index]
+
+		os.write_string(prev_file, music_info.full_path)
+		os.write_string(prev_file, "\n")
+	}
+}
+
 app_run :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	app.bottom.rect = {0, ctx.height - 55, ctx.width, 55}
 
@@ -520,6 +567,7 @@ ui_panel_right :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	button_config.text_align = {TA_LEFT, TA_CENTER}
 	button_config.double_click = true
 
+	remove_index := -1
 	list_width := width - 3 * margin
 	clip := Rect{x + margin, at_y, list_width, app.right.h - at_y}
 	for music_info_index, queue_index in app.queue {
@@ -539,6 +587,11 @@ ui_panel_right :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 			jump_queue(app, queue_index)
 		}
 
+		if ctx.msg == .MOUSE_MIDDLE_RELEASED &&
+		   point_in_rect(ctx.cx, ctx.cy, Rect{x + margin, at_y, list_width, item_height}) {
+			remove_index = queue_index
+		}
+
 		// i32 length_min = cast(i32) (cursor.length / 60)
 		// i32 length_sec = cast(i32) cursor.length % 60
 		// String_Null length = push_printf_null(&app.temp_arena, L"%d.%.2d", length_min, length_sec)
@@ -548,6 +601,10 @@ ui_panel_right :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 		// set_text_color(ctx, 0)
 
 		at_y += item_height
+	}
+
+	if remove_index > -1 {
+		remove_from_queue(app, remove_index)
 	}
 
 	// ---------- ADD TO QUEUE

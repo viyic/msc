@@ -51,11 +51,18 @@ add_music_to_queue :: proc(app: ^App, music_info: Music_Info) {
     */
 }
 
-remove_from_queue :: proc(app: ^App) {
-	if app.playing_index > -1 {
-		ordered_remove(&app.queue, app.playing_index) // @todo: turn to linked list?
-		app.playing_index -= 1
-		handle_end_of_music(app)
+remove_from_queue :: proc(app: ^App, queue_index := -1) {
+	index := queue_index
+	if index == -1 do index = app.playing_index
+
+	if index > -1 {
+		ordered_remove(&app.queue, index) // @todo: turn to linked list?
+		if index <= app.playing_index {
+			app.playing_index -= 1
+			if index == app.playing_index + 1 {
+				handle_end_of_music(app)
+			}
+		}
 	}
 }
 

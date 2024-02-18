@@ -4,9 +4,9 @@ set hour=%time:~0,2%
 if "%hour:~0,1%" == " " set hour=0%hour:~1,1%
 set min=%time:~3,2%
 if "%min:~0,1%" == " " set min=0%min:~1,1%
-set secs=%time:~6,2%
-if "%secs:~0,1%" == " " set secs=0%secs:~1,1%
-echo start: %hour%.%min%.%secs%
+set sec=%time:~6,2%
+if "%sec:~0,1%" == " " set sec=0%sec:~1,1%
+echo start: %hour%.%min%.%sec%
 
 
 if not exist run mkdir run
@@ -19,6 +19,6 @@ set hour=%time:~0,2%
 if "%hour:~0,1%" == " " set hour=0%hour:~1,1%
 set min=%time:~3,2%
 if "%min:~0,1%" == " " set min=0%min:~1,1%
-set secs=%time:~6,2%
-if "%secs:~0,1%" == " " set secs=0%secs:~1,1%
-echo end: %hour%.%min%.%secs%
+set sec=%time:~6,2%
+if "%sec:~0,1%" == " " set sec=0%sec:~1,1%
+echo end: %hour%.%min%.%sec%

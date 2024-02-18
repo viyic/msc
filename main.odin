@@ -74,6 +74,8 @@ main :: proc() {
 	config_init(&app)
 	platform_font_init(&app)
 
+	load_prev_session(&app)
+
 	ShowWindow(win_handle, SW_SHOWNORMAL)
 	UpdateWindow(win_handle)
 
@@ -136,6 +138,7 @@ win_proc :: proc "stdcall" (
 		DestroyWindow(win_handle)
 
 	case WM_DESTROY:
+		save_prev_session(&app)
 		PostQuitMessage(0)
 
 	case WM_SETCURSOR:
@@ -217,6 +220,7 @@ win_proc :: proc "stdcall" (
 			toggle_pause_music(&app)
 			InvalidateRect(win_handle, nil, TRUE)
 		case VK_DELETE:
+		// reset_queue(&app)
 		case VK_BACK:
 			remove_from_queue(&app)
 			// prev: ^Music_File = nil
@@ -312,6 +316,11 @@ win_proc :: proc "stdcall" (
 		}
 
 		app.mouse_down = false
+		InvalidateRect(win_handle, nil, TRUE)
+	case WM_MBUTTONUP:
+		ctx := platform_ui_context_create(&app)
+		ctx.msg = .MOUSE_MIDDLE_RELEASED
+		app_run(&app, &ctx)
 		InvalidateRect(win_handle, nil, TRUE)
 
 	case WM_MOUSEWHEEL:
