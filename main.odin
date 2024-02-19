@@ -325,7 +325,7 @@ win_proc :: proc "stdcall" (
 
 	case WM_MOUSEWHEEL:
 		ctx := platform_ui_context_create(&app)
-		ctx.scroll = f32(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 4
+		ctx.scroll = f32(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 24
 		ctx.msg = .MOUSE_WHEEL
 		app_run(&app, &ctx)
 

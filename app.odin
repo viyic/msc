@@ -284,11 +284,6 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	clip.w -= margin * 2
 	clip.h -= margin * 2
 
-	if ctx.scroll != 0 {
-		app.left.scroll = max(0, min(app.left.scroll - ctx.scroll / 100, 1))
-		ctx.redraw = true
-	}
-
 	at_y := app.left.y + margin
 
 	filter_proc :: proc(item: os.File_Info) -> bool {
@@ -308,10 +303,14 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	}
 	slice.stable_sort_by(file_list, sort_proc)
 
-	// @todo: figure out how resizing with scrolled panel work, anchor on top left?
 	list_height := item_height * (len(file_list) + 1)
-	list_scroll := int(f32(list_height - height) * app.left.scroll)
-	if list_height <= height do list_scroll = 0
+	if ctx.scroll != 0 {
+		app.left.scroll = clamp(app.left.scroll - ctx.scroll, 0, f32(list_height - height))
+		ctx.redraw = true
+	}
+	if list_height <= height do app.left.scroll = 0
+	// @todo: figure out how resizing with scrolled panel work, anchor on top left?
+	list_scroll := int(app.left.scroll)
 
 	new_path := app.current_path
 
