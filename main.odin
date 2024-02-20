@@ -285,27 +285,24 @@ win_proc :: proc "stdcall" (
 			prev_mouse_down := app.mouse_down
 			app.mouse_down = true
 
-			if !prev_mouse_down {
-				ctx := platform_ui_context_create(&app)
-				time: FILETIME
-				GetSystemTimePreciseAsFileTime(&time)
-				time64 := u64(time.dwLowDateTime) + u64(time.dwHighDateTime << 32)
+			ctx := platform_ui_context_create(&app)
+			time: FILETIME
+			GetSystemTimePreciseAsFileTime(&time)
+			time64 := u64(time.dwLowDateTime) + u64(time.dwHighDateTime << 32)
 
-				if time64 - app.last_click_time < 3000000 {
-					ctx.msg = .MOUSE_DOUBLE_CLICK
-					app_run(&app, &ctx)
-				}
-
-				app.last_click_cx = ctx.cx
-				app.last_click_cy = ctx.cy
-				app.last_click_time = time64
+			if time64 - app.last_click_time < 3000000 {
+				ctx.msg = .MOUSE_DOUBLE_CLICK
 			} else {
-				ctx := platform_ui_context_create(&app)
 				ctx.msg = .MOUSE_LEFT_PRESSED
-				app_run(&app, &ctx)
 			}
+			app_run(&app, &ctx)
+
+			app.last_click_cx = ctx.cx
+			app.last_click_cy = ctx.cy
+			app.last_click_time = time64
 
 			InvalidateRect(win_handle, nil, TRUE)
+			SetCapture(win_handle)
 		}
 
 	case WM_LBUTTONUP:
@@ -317,6 +314,7 @@ win_proc :: proc "stdcall" (
 
 		app.mouse_down = false
 		InvalidateRect(win_handle, nil, TRUE)
+		ReleaseCapture()
 	case WM_MBUTTONUP:
 		ctx := platform_ui_context_create(&app)
 		ctx.msg = .MOUSE_MIDDLE_RELEASED

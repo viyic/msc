@@ -384,6 +384,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 }
 
 ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
+	ui_focus := app.ui_focus // @todo: find a better way to do this
 	playing := app.paused ? "|>" : "||"
 
 	set_color(ctx, theme.background)
@@ -411,19 +412,21 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	if sound_exists(app) {
 		// ---------- PLAY BAR
 		set_color(ctx, theme.button.hover)
-		draw_rect(
-			ctx,
-			 {
-				play_bar.x,
-				play_bar.y,
-				int(app.cursor / app.length * f32(ctx.width - 10)),
-				play_bar.h,
-			},
-		)
+		play_bar_hover := point_in_rect(ctx.cx, ctx.cy, play_bar)
 
-		if ctx.msg == .MOUSE_LEFT_RELEASED &&
-		   app.mouse_down &&
-		   point_in_rect(ctx.cx, ctx.cy, play_bar) {
+		play_bar_drag := false
+		if ctx.msg == .MOUSE_LEFT_PRESSED && play_bar_hover {
+			app.ui_focus = "play"
+			ui_focus = "play"
+			play_bar_drag = true
+		}
+		if app.mouse_down && ui_focus == "play" {
+			play_bar_drag = true
+		}
+
+		if ctx.msg == .MOUSE_LEFT_RELEASED && app.mouse_down && ui_focus == "play" {
+			app.ui_focus = ""
+			play_bar_drag = true
 			pcm_length: u64
 			sample_rate: u32
 			result := ma.data_source_get_length_in_pcm_frames(app.sound.pDataSource, &pcm_length)
@@ -436,18 +439,27 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 				0,
 			)
 			if result == .SUCCESS {
-				// if !sound_exists(app)
-				// {
-				//     jump_queue(app, 0)
-				//     toggle_pause_music(app)
-				// }
-				normalized := f32(ctx.cx - play_bar.x)
-				new_length := u64(f32(pcm_length) * (normalized / f32(play_bar.w)))
+				normalized := clamp(f32(ctx.cx - play_bar.x) / f32(play_bar.w), 0, 1)
+				new_length := u64(f32(pcm_length) * normalized)
 				// @analyze: less popping?
 				new_length = new_length - (new_length % u64(sample_rate))
 				ma.sound_seek_to_pcm_frame(&app.sound, new_length)
 				ctx.redraw = true
 			}
+		}
+
+		draw_rect(
+			ctx,
+			{play_bar.x, play_bar.y, int(app.cursor / app.length * f32(play_bar.w)), play_bar.h},
+		)
+
+		set_color(ctx, {1, 1, 1})
+		if play_bar_drag {
+			x :=
+				int(clamp(f32(ctx.cx - play_bar.x) / f32(play_bar.w), 0, 1) * f32(play_bar.w)) +
+				play_bar.x
+			draw_rect(ctx, {x - 3, play_bar.y, 6, play_bar.h})
+
 		}
 	}
 
@@ -463,10 +475,26 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	set_color(ctx, theme.button.normal)
 	draw_rect(ctx, vol_bar)
 	vol_bar.w = 80
-	if ctx.msg == .MOUSE_LEFT_RELEASED &&
-	   app.mouse_down &&
-	   point_in_rect(ctx.cx, ctx.cy, vol_bar) {
-		new_vol := f32(ctx.cx - vol_bar.x) / f32(vol_bar.w)
+
+	change := false
+	vol_bar_hover := point_in_rect(ctx.cx, ctx.cy, vol_bar)
+	if ctx.msg == .MOUSE_LEFT_PRESSED && vol_bar_hover {
+		app.ui_focus = "volume"
+		ui_focus = "volume"
+		change = true
+	}
+	if ui_focus == "volume" && app.mouse_down {
+		ctx.redraw = true
+		change = true
+	}
+	if ctx.msg == .MOUSE_LEFT_RELEASED && app.mouse_down && ui_focus == "volume" {
+		app.ui_focus = "" // @warning: might cause bug
+		ctx.redraw = true
+		change = true
+	}
+
+	if change {
+		new_vol := clamp(f32(ctx.cx - vol_bar.x) / f32(vol_bar.w), 0, 1)
 		change_volume(app, new_vol)
 	}
 	right_of_play_x += vol_bar.w + 5
@@ -522,7 +550,8 @@ ui_panel_bottom :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	)
 
 	// ---------- PLAY BUTTON
-	if button(ctx, button_play.x, button_play.y, button_play.w, button_play.h, playing) {
+	if button(ctx, button_play.x, button_play.y, button_play.w, button_play.h, playing) &&
+	   ui_focus == "" {
 		toggle_pause_music(app)
 		ctx.redraw = true
 	}

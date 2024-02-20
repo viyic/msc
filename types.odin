@@ -33,6 +33,7 @@ App :: struct {
 	last_click_cx, last_click_cy: int,
 	last_click_time:              u64,
 	last_cursor:                  Cursor,
+	ui_focus:                     string,
 }
 
 Music_View :: enum {
