@@ -16,7 +16,7 @@ theme: Theme
 
 DEBUG :: true
 
-START_PATH :: `C:\`
+HOME :: `C:\`
 FONT_DEFAULT_NAME :: "Segoe UI"
 FONT_DEFAULT_HEIGHT :: 20
 

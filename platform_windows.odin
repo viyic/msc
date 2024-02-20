@@ -121,7 +121,7 @@ platform_window_set_text :: proc(app: ^App, text: string) {
 }
 
 platform_get_shift_key :: proc() -> bool {
-	return win32.GetKeyState(win32.VK_SHIFT) >= 0
+	return win32.GetKeyState(win32.VK_SHIFT) < 0
 }
 
 platform_redraw :: proc(app: ^App) {

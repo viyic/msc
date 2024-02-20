@@ -21,7 +21,7 @@ app_init :: proc(app: ^App, win_handle: platform_window_handle) -> bool {
 	app.font_name = FONT_DEFAULT_NAME
 	app.font_height = FONT_DEFAULT_HEIGHT
 
-	change_current_path(app, START_PATH)
+	change_current_path(app, HOME)
 	update_file_list(app)
 	change_volume(app, 0.5)
 	app.paused = true
@@ -59,16 +59,17 @@ config_init :: proc(app: ^App) {
 		if len(words) != 3 || words[0] == "#" || words[1] != "=" do continue
 
 		switch words[0] {
-		case "start_path":
+		case "home":
 			if os.is_dir(words[2]) {
 				change_current_path(app, words[2])
+				app.home = strings.clone(words[2])
 			} else {
 				fmt.eprintln(
-					"[msc.cfg] invalid path for 'start_path' value in line ",
+					"[msc.cfg] invalid path for 'home' value in line ",
 					line_number,
 					": ",
 					words[2],
-					"\nexample: start_path = E:\\music",
+					"\nexample: home = E:\\music",
 				)
 			}
 		case "volume":
@@ -242,22 +243,48 @@ ui_panel_top_left :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	y := app.top_left.y + margin
 	at_x := app.top_left.x + margin
 
-	if app.music_view == .GRID {
-		name := "File"
+	{
+		name := "^"
+		rect := platform_get_text_size(ctx, name)
+		if button(ctx, at_x, y, rect.h + padding, rect.h + padding, name) {
+			clean := filepath.clean(app.current_path, context.temp_allocator)
+			up, _ := filepath.split(clean)
+			change_current_path(app, up)
+			app.left.scroll = 0
+			ctx.redraw = true
+		}
+		at_x += rect.h + padding + margin
+	}
+
+	{
+		name := "Home"
 		rect := platform_get_text_size(ctx, name)
 		if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name) {
-			app.music_view = .FILE
+			change_current_path(app, app.home)
+			app.left.scroll = 0
 			ctx.redraw = true
 		}
 		at_x += rect.w + padding + margin
-	} else if app.music_view == .FILE {
-		name := "Grid"
-		rect := platform_get_text_size(ctx, name)
-		if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name) {
-			app.music_view = .GRID
-			ctx.redraw = true
+	}
+
+	when false {
+		if app.music_view == .GRID {
+			name := "File"
+			rect := platform_get_text_size(ctx, name)
+			if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name) {
+				app.music_view = .FILE
+				ctx.redraw = true
+			}
+			at_x += rect.w + padding + margin
+		} else if app.music_view == .FILE {
+			name := "Grid"
+			rect := platform_get_text_size(ctx, name)
+			if button(ctx, at_x, y, rect.w + padding, rect.h + padding, name) {
+				app.music_view = .GRID
+				ctx.redraw = true
+			}
+			at_x += rect.w + padding + margin
 		}
-		at_x += rect.w + padding + margin
 	}
 }
 
@@ -291,11 +318,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 
 		return item.is_dir || is_supported_audio_file(ext)
 	}
-	file_list_ := slice.filter(app.file_list, filter_proc)
-	file_list := slice.concatenate(
-	[][]os.File_Info{[]os.File_Info{os.File_Info{name = "..", is_dir = true}}, file_list_}, // @warning: dangerous!
-	)
-	delete(file_list_)
+	file_list := slice.filter(app.file_list, filter_proc)
 	defer delete(file_list)
 
 	sort_proc :: proc(a: os.File_Info, b: os.File_Info) -> bool {
@@ -303,7 +326,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	}
 	slice.stable_sort_by(file_list, sort_proc)
 
-	list_height := item_height * (len(file_list) + 1)
+	list_height := item_height * len(file_list)
 	if ctx.scroll != 0 {
 		app.left.scroll = clamp(app.left.scroll - ctx.scroll, 0, f32(list_height - height))
 		ctx.redraw = true
@@ -322,7 +345,7 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 	for cursor in file_list {
 		if at_y + item_height >= list_scroll && at_y < list_scroll + height {
 			name: string
-			if cursor.is_dir && cursor.name != ".." {
+			if cursor.is_dir {
 				name = strings.concatenate([]string{": ", cursor.name}, context.temp_allocator)
 			} else {
 				name = cursor.name
@@ -344,17 +367,11 @@ ui_music_list :: proc(app: ^App, ctx: ^Platform_Ui_Context) {
 
 					if ok {
 						add_music_to_queue(app, music_info)
-						if platform_get_shift_key() do jump_queue(app, len(app.queue) - 1)
-						fmt.println(music_info)
+						if !platform_get_shift_key() do jump_queue(app, len(app.queue) - 1)
+						// fmt.println(music_info)
 					}
 				} else {
-					if cursor.name == ".." {
-						clean := filepath.clean(app.current_path, context.temp_allocator)
-						up, _ := filepath.split(clean)
-						new_path = up
-					} else {
-						new_path = cursor.fullpath
-					}
+					new_path = cursor.fullpath
 				}
 
 				ctx.redraw = true
