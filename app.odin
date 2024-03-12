@@ -151,7 +151,7 @@ save_prev_session :: proc(app: ^App) {
 		return
 	}
 
-	prev_file, err := os.open(path, os.O_CREATE)
+	prev_file, err := os.open(path, os.O_CREATE | os.O_TRUNC)
 	if err != os.ERROR_NONE {
 		fmt.print(err)
 		return

@@ -215,7 +215,7 @@ win_proc :: proc "stdcall" (
 		switch wparam 
 		{
 		case VK_ESCAPE:
-			PostQuitMessage(0)
+			DestroyWindow(win_handle)
 		case VK_SPACE:
 			toggle_pause_music(&app)
 			InvalidateRect(win_handle, nil, TRUE)
